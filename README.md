@@ -32,7 +32,14 @@ npm run setup
 npm run dev
 ```
 
-Open http://localhost:3020.
+Open http://127.0.0.1:3020. The dev server only listens on this computer, because the local build has no sign-in.
+
+### Connect a local AI model
+
+1. In LM Studio, load a chat model (and optionally an embedding model) and start the server in the Developer tab.
+2. In LeadSprint, open **Connections**, keep **LM Studio on this computer**, click **Load models**, then **Save connection** and **Test connection**.
+
+The test runs a reply, tool calling, JSON, Arabic and embeddings check. Models that think before answering (for example `qwen3.5-9b`) can take a minute per reply and may run out of room on the JSON check; for live chat, prefer an instruct model without thinking, or turn thinking off in the server if the model allows it.
 
 ### Useful scripts
 

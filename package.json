@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "postinstall": "prisma generate",
-    "dev": "next dev --port 3020",
+    "dev": "next dev --port 3020 --hostname 127.0.0.1",
     "build": "next build",
-    "start": "next start --port 3020",
+    "start": "next start --port 3020 --hostname 127.0.0.1",
     "lint": "eslint",
     "db:push": "node scripts/ensure-dirs.mjs && prisma db push && prisma generate",
     "db:seed": "tsx scripts/seed.ts",
