@@ -1,0 +1,52 @@
+{
+  "name": "leadsprint",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "next dev --port 3020",
+    "build": "next build",
+    "start": "next start --port 3020",
+    "lint": "eslint",
+    "db:push": "node scripts/ensure-dirs.mjs && prisma db push && prisma generate",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "node scripts/ensure-dirs.mjs && prisma db push --force-reset && prisma generate && tsx scripts/seed.ts",
+    "setup": "npm run db:push && npm run db:seed",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "better-sqlite3": "^12.11.1",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^1.59.0",
+    "mammoth": "^1.13.0",
+    "next": "16.4.2",
+    "openai": "^7.39.0",
+    "papaparse": "^5.7.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "unpdf": "^1.9.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "prisma": "^7.10.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "@prisma/engines@7.10.1": true,
+    "prisma@7.10.1": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true
+  }
+}

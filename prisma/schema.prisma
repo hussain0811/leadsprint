@@ -1,0 +1,325 @@
+// LeadSprint local build. SQLite for now; the same models move to Postgres later.
+// JSON payloads are stored as strings and validated in code so the schema stays portable.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Org {
+  id          String   @id @default(cuid())
+  name        String
+  website     String?
+  defaultLang String   @default("en")
+  // JSON: guard limits, AI feature switches, allow-listed links and phone numbers
+  settings    String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  projects      Project[]
+  units         Unit[]
+  slots         AvailabilitySlot[]
+  leads         Lead[]
+  conversations Conversation[]
+  connections   Connection[]
+  sources       KnowledgeSource[]
+  chunks        Chunk[]
+  qaPairs       QaPair[]
+  unanswered    UnansweredQuestion[]
+  bookings      Booking[]
+  flows         Flow[]
+  agentRuns     AgentRun[]
+}
+
+model Project {
+  id           String   @id @default(cuid())
+  orgId        String
+  org          Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name         String
+  community    String?
+  city         String?
+  developer    String?
+  status       String   @default("off_plan") // off_plan | ready
+  handover     String?
+  paymentPlan  String?
+  permitNumber String?
+  description  String?
+  createdAt    DateTime @default(now())
+
+  units    Unit[]
+  slots    AvailabilitySlot[]
+  leads    Lead[]
+  sources  KnowledgeSource[]
+  chunks   Chunk[]
+  qaPairs  QaPair[]
+  bookings Booking[]
+
+  @@index([orgId])
+}
+
+model Unit {
+  id        String  @id @default(cuid())
+  orgId     String
+  org       Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  unitNo    String
+  type      String // apartment | villa | townhouse | penthouse
+  bedrooms  Int // 0 = studio
+  sizeSqft  Float?
+  price     Float
+  currency  String  @default("AED")
+  status    String  @default("available") // available | reserved | sold
+  floor     String?
+  view      String?
+
+  @@unique([projectId, unitNo])
+  @@index([orgId, projectId])
+}
+
+model AvailabilitySlot {
+  id          String   @id @default(cuid())
+  orgId       String
+  org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  startsAt    DateTime
+  durationMin Int      @default(45)
+  kind        String   @default("viewing") // viewing | call
+  booking     Booking?
+
+  @@index([orgId, startsAt])
+}
+
+model Lead {
+  id             String   @id @default(cuid())
+  orgId          String
+  org            Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  name           String?
+  phone          String?
+  email          String?
+  source         String   @default("simulator") // simulator | web | form | webhook | csv
+  language       String   @default("en")
+  status         String   @default("new") // new | qualifying | qualified | handed_off | closed
+  score          String   @default("unknown") // hot | warm | cold | unknown
+  scoreReasons   String   @default("[]") // JSON string[]
+  qualification  String   @default("{}") // JSON: answers collected so far
+  summary        String?
+  aiStopped      Boolean  @default(false)
+  strikes        Int      @default(0)
+  offTopicStreak Int      @default(0)
+  tokensUsed     Int      @default(0)
+  blocked        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversations Conversation[]
+  bookings      Booking[]
+  unanswered    UnansweredQuestion[]
+
+  @@index([orgId, createdAt])
+}
+
+model Conversation {
+  id             String    @id @default(cuid())
+  orgId          String
+  org            Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  leadId         String
+  lead           Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  channel        String    @default("whatsapp_sim")
+  forceScripted  Boolean   @default(false)
+  humanTakeover  Boolean   @default(false)
+  needsHuman     Boolean   @default(false)
+  flowState      String    @default("{}") // JSON: scripted flow position and retries
+  // Frozen per conversation on the first AI turn; later changes are appended, never rewritten
+  systemPrompt   String?
+  aiConnectionId String?
+  lastInboundAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  messages   Message[]
+  aiMessages AiMessage[]
+  agentRuns  AgentRun[]
+
+  @@index([orgId, updatedAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      String // in | out
+  author         String // lead | bot | ai | agent | system
+  kind           String       @default("text") // text | buttons | list | document | template | note
+  body           String
+  payload        String       @default("{}") // JSON: buttons, list rows, document link
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// Append-only provider transcript: stored exactly as sent and received, never edited.
+model AiMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  seq            Int
+  role           String
+  raw            String
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, seq])
+}
+
+model AgentRun {
+  id             String       @id @default(cuid())
+  orgId          String
+  org            Org          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  provider       String
+  model          String
+  inputTokens    Int          @default(0)
+  outputTokens   Int          @default(0)
+  latencyMs      Int          @default(0)
+  guard          String       @default("{}") // JSON: free checks, scope label, reply check
+  toolCalls      String       @default("[]")
+  knowledgeUsed  String       @default("[]")
+  outcome        String // replied | off_topic | fallback | handoff | blocked | error
+  error          String?
+  createdAt      DateTime     @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+// Bring-your-own connections: AI, storage, and later WhatsApp, SMS, email.
+model Connection {
+  id            String    @id @default(cuid())
+  orgId         String
+  org           Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  type          String // ai | storage | whatsapp | sms | email
+  provider      String // openai_compatible | local_folder | ...
+  name          String
+  config        String    @default("{}") // JSON, no secrets
+  secret        String? // encrypted with APP_ENCRYPTION_KEY
+  enabled       Boolean   @default(true)
+  status        String    @default("untested") // untested | ok | error
+  lastCheckedAt DateTime?
+  lastCheck     String    @default("{}") // JSON: per-check results
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([orgId, type])
+}
+
+model KnowledgeSource {
+  id             String    @id @default(cuid())
+  orgId          String
+  org            Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind           String // file | url | text
+  role           String    @default("reference") // reference | rules
+  title          String
+  fileName       String?
+  mimeType       String?
+  storageKey     String?
+  url            String?
+  status         String    @default("processing") // processing | ready | failed
+  error          String?
+  validUntil     DateTime?
+  priority       Int       @default(0)
+  charCount      Int       @default(0)
+  pageCount      Int?
+  text           String?
+  embeddingModel String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  chunks Chunk[]
+
+  @@index([orgId])
+}
+
+model Chunk {
+  id             String          @id @default(cuid())
+  orgId          String
+  org            Org             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sourceId       String
+  source         KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ordinal        Int
+  heading        String?
+  page           Int?
+  text           String
+  embedding      Bytes?
+  embeddingModel String?
+
+  @@index([orgId, projectId])
+  @@index([sourceId])
+}
+
+model QaPair {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  question  String
+  answer    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+model UnansweredQuestion {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  question  String
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([orgId, resolved])
+}
+
+model Booking {
+  id        String            @id @default(cuid())
+  orgId     String
+  org       Org               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  leadId    String
+  lead      Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  slotId    String?           @unique
+  slot      AvailabilitySlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  startsAt  DateTime
+  kind      String            @default("viewing") // viewing | call
+  status    String            @default("booked") // booked | cancelled | done
+  createdAt DateTime          @default(now())
+
+  @@index([orgId, startsAt])
+}
+
+// Scripted (no-key) qualification flow. Steps carry English and Arabic text.
+model Flow {
+  id         String   @id @default(cuid())
+  orgId      String
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name       String
+  definition String // JSON
+  isDefault  Boolean  @default(true)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([orgId, name])
+}
