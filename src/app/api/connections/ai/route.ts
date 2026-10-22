@@ -3,7 +3,7 @@ import { findPreset } from "@/lib/ai/presets";
 import { aiConfigSchema, findConnection, publicAi, readAiConfig } from "@/lib/connections";
 import { encryptSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
-import { jsonError, parseBody } from "@/lib/http";
+import { crossSiteError, jsonError, parseBody } from "@/lib/http";
 import { checkEndpoint } from "@/lib/net";
 import { getOrg } from "@/lib/org";
 
@@ -14,6 +14,8 @@ const saveSchema = aiConfigSchema.extend({
 });
 
 export async function PUT(req: Request) {
+  const blocked = crossSiteError(req);
+  if (blocked) return blocked;
   const body = await parseBody(req, saveSchema);
   if (!body.ok) return body.response;
   const { apiKey, clearKey, ...config } = body.data;
@@ -51,7 +53,9 @@ export async function PUT(req: Request) {
   return Response.json({ ai: publicAi(row), keyDropped });
 }
 
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const blocked = crossSiteError(req);
+  if (blocked) return blocked;
   const org = await getOrg();
   await prisma.connection.deleteMany({ where: { orgId: org.id, type: "ai" } });
   return Response.json({ ai: null });

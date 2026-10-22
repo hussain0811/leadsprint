@@ -1,10 +1,12 @@
 import { findConnection, publicStorage, readStorageConfig } from "@/lib/connections";
 import { prisma } from "@/lib/db";
-import { jsonError } from "@/lib/http";
+import { crossSiteError, jsonError } from "@/lib/http";
 import { getOrg } from "@/lib/org";
 import { localFolderStorage, testStorage } from "@/lib/storage/local-folder";
 
-export async function POST() {
+export async function POST(req: Request) {
+  const blocked = crossSiteError(req);
+  if (blocked) return blocked;
   const org = await getOrg();
   const row = await findConnection(org.id, "storage");
   if (!row) return jsonError("Save a storage folder first.", 404);

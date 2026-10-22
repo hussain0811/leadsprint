@@ -1,11 +1,13 @@
 import path from "node:path";
 import { publicStorage, storageConfigSchema } from "@/lib/connections";
 import { prisma } from "@/lib/db";
-import { jsonError, parseBody } from "@/lib/http";
+import { crossSiteError, jsonError, parseBody } from "@/lib/http";
 import { getOrg } from "@/lib/org";
 import { resolveFolder } from "@/lib/storage/local-folder";
 
 export async function PUT(req: Request) {
+  const blocked = crossSiteError(req);
+  if (blocked) return blocked;
   const body = await parseBody(req, storageConfigSchema);
   if (!body.ok) return body.response;
 
@@ -30,7 +32,9 @@ export async function PUT(req: Request) {
   return Response.json({ storage: publicStorage(row) });
 }
 
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const blocked = crossSiteError(req);
+  if (blocked) return blocked;
   const org = await getOrg();
   await prisma.connection.deleteMany({ where: { orgId: org.id, type: "storage" } });
   return Response.json({ storage: null });

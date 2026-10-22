@@ -229,6 +229,7 @@ model KnowledgeSource {
   title          String
   fileName       String?
   mimeType       String?
+  sizeBytes      Int?
   storageKey     String?
   url            String?
   status         String    @default("processing") // processing | ready | failed
@@ -272,10 +273,12 @@ model QaPair {
   org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  question  String
-  answer    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  question       String
+  answer         String
+  embedding      Bytes?
+  embeddingModel String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([orgId])
 }

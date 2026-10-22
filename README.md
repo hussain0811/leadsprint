@@ -41,6 +41,8 @@ Open http://127.0.0.1:3020. The dev server only listens on this computer, becaus
 
 The test runs a reply, tool calling, JSON, Arabic and embeddings check. Models that think before answering (for example `qwen3.5-9b`) can take a minute per reply and may run out of room on the JSON check; for live chat, prefer an instruct model without thinking, or turn thinking off in the server if the model allows it.
 
+For document search by meaning, choose a multilingual embedding model (for example multilingual-e5 or bge-m3). English-only models such as `nomic-embed-text` can't match an Arabic question to an English document; keyword search and Arabic Q&A pairs still work.
+
 ### Useful scripts
 
 | Script | What it does |

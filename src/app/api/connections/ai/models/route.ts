@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createAiClient, describeAiError, listModels } from "@/lib/ai/client";
 import { getAiConnection } from "@/lib/connections";
-import { jsonError, parseBody } from "@/lib/http";
+import { crossSiteError, jsonError, parseBody } from "@/lib/http";
 import { checkEndpoint } from "@/lib/net";
 import { getOrg } from "@/lib/org";
 
@@ -12,6 +12,8 @@ const schema = z.object({
 
 // Lists the models a server offers, so the admin can pick instead of typing names.
 export async function POST(req: Request) {
+  const blocked = crossSiteError(req);
+  if (blocked) return blocked;
   const body = await parseBody(req, schema);
   if (!body.ok) return body.response;
   const { baseUrl } = body.data;

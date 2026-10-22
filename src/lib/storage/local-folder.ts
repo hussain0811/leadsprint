@@ -28,7 +28,16 @@ export function localFolderStorage(folder: string): StorageAdapter {
     },
     get: (key) => fs.readFile(fileFor(key)),
     async remove(key) {
-      await fs.rm(fileFor(key), { force: true });
+      const file = fileFor(key);
+      await fs.rm(file, { force: true });
+      // Tidy away the folders the upload created; rmdir only removes empty ones, so stop at the first in use.
+      for (let dir = path.dirname(file); dir.startsWith(root + path.sep); dir = path.dirname(dir)) {
+        try {
+          await fs.rmdir(dir);
+        } catch {
+          break;
+        }
+      }
     },
   };
 }

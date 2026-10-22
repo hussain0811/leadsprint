@@ -2,12 +2,14 @@ import { runAiChecks } from "@/lib/ai/checks";
 import { createAiClient } from "@/lib/ai/client";
 import { getAiConnection, publicAi } from "@/lib/connections";
 import { prisma } from "@/lib/db";
-import { jsonError } from "@/lib/http";
+import { crossSiteError, jsonError } from "@/lib/http";
 import { checkEndpoint } from "@/lib/net";
 import { getOrg } from "@/lib/org";
 
 // Runs the connection checks against the saved AI connection and stores the result.
-export async function POST() {
+export async function POST(req: Request) {
+  const blocked = crossSiteError(req);
+  if (blocked) return blocked;
   const org = await getOrg();
   const saved = await getAiConnection(org.id);
   if (!saved) return jsonError("Save an AI connection first.", 404);

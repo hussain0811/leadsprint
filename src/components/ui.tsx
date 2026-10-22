@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react";
+import { cloneElement, isValidElement, type ComponentProps, type ReactNode } from "react";
 
 export type Tone = "ok" | "warn" | "bad" | "muted";
 
@@ -43,13 +43,25 @@ export function Field({
   help?: ReactNode;
   children: ReactNode;
 }) {
+  // The help text describes the control: link them so screen readers read it with the field.
+  const helpId = `${htmlFor}-help`;
+  const control =
+    help && isValidElement<{ "aria-describedby"?: string }>(children)
+      ? cloneElement(children, {
+          "aria-describedby": [children.props["aria-describedby"], helpId].filter(Boolean).join(" "),
+        })
+      : children;
   return (
     <div className="grid gap-1.5">
       <label htmlFor={htmlFor} className="text-[14px] font-medium">
         {label}
       </label>
-      {children}
-      {help && <div className="text-[13px] leading-snug text-muted">{help}</div>}
+      {control}
+      {help && (
+        <div id={helpId} className="text-[13px] leading-snug text-muted">
+          {help}
+        </div>
+      )}
     </div>
   );
 }
@@ -62,5 +74,29 @@ export function StatusMark({ tone, children }: { tone: Tone; children: ReactNode
       <span aria-hidden className={`size-2 shrink-0 rounded-full ${DOT[tone]}`} />
       {children}
     </span>
+  );
+}
+
+const TEXTAREA =
+  "block w-full resize-y rounded-[4px] border border-line bg-panel px-3 py-2 text-[14px] leading-relaxed text-ink placeholder:text-muted focus:border-marina";
+
+export function Textarea({ className = "", rows = 4, ...props }: ComponentProps<"textarea">) {
+  return <textarea rows={rows} className={`${TEXTAREA} ${className}`} {...props} />;
+}
+
+const TEXT_BUTTON_TONES = { marina: "text-marina", bad: "text-bad" } as const;
+
+// A quiet action that reads like a link, for rows that carry several actions.
+export function TextButton({
+  tone = "marina",
+  className = "",
+  ...props
+}: ComponentProps<"button"> & { tone?: keyof typeof TEXT_BUTTON_TONES }) {
+  return (
+    <button
+      type="button"
+      className={`inline-flex min-h-6 items-center gap-1.5 rounded-[2px] text-[14px] font-medium underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50 ${TEXT_BUTTON_TONES[tone]} ${className}`}
+      {...props}
+    />
   );
 }

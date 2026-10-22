@@ -322,7 +322,7 @@ function AiSection({
           <Field
             label="Embedding model"
             htmlFor="ai-embedding-model"
-            help="Optional. Lets document search match meaning. Leave it empty to match keywords only."
+            help="Optional. Lets document search match meaning. Pick a multilingual model (like multilingual-e5 or bge-m3) so Arabic questions match English documents. Leave it empty to match keywords only."
           >
             <Input
               id="ai-embedding-model"
