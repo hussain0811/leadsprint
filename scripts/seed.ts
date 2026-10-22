@@ -301,6 +301,23 @@ async function addKnowledge(prisma: PrismaClient, ingestSource: Ingest, orgId: s
   console.log(`  Q&A pairs added: ${added}`);
 }
 
+// Saves the ready-made flow so the Flows page has something to edit; an org that saved its own keeps it.
+async function addDefaultFlow(prisma: PrismaClient, orgId: string) {
+  const { DEFAULT_FLOW, validateFlow } = await import("../src/lib/chat/flow");
+  const { FLOW_NAME } = await import("../src/lib/chat/turn");
+  if (await prisma.flow.count({ where: { orgId } })) {
+    console.log("  Flow: already saved.");
+    return;
+  }
+  const problems = validateFlow(DEFAULT_FLOW);
+  if (problems.length) {
+    console.log(`  Flow skipped: the ready-made flow has problems: ${problems.join("; ")}`);
+    return;
+  }
+  await prisma.flow.create({ data: { orgId, name: FLOW_NAME, definition: JSON.stringify(DEFAULT_FLOW), isDefault: true } });
+  console.log("  Flow: saved the ready-made English/Arabic flow.");
+}
+
 async function main() {
   // Imported only now that .env is loaded, because the database client reads DATABASE_URL as it loads.
   const { prisma } = await import("../src/lib/db");
@@ -312,6 +329,14 @@ async function main() {
       console.log(`"${org.name}" is already in the database; adding any missing demo knowledge. Run \`npm run db:reset\` to start over.`);
     } else {
       org = await createBrokerage(prisma);
+    }
+
+    console.log("Chat:");
+    try {
+      await addDefaultFlow(prisma, org.id);
+    } catch (err) {
+      // The chat falls back to the ready-made flow anyway, so a failure here only skips the saved copy.
+      console.log(`  Flow skipped: ${err instanceof Error ? err.message : err}`);
     }
 
     console.log("Demo knowledge:");
