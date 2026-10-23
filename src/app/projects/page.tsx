@@ -1,17 +1,14 @@
-import { ComingInStep, Page } from "@/components/page";
+import { Page } from "@/components/page";
+import { ProjectsClient } from "./projects-client";
 
 export default function ProjectsPage() {
   return (
-    <Page title="Projects" arabic="المشاريع" intro="Your projects, units, prices and viewing slots.">
-      <ComingInStep
-        step={9}
-        what="projects and units"
-        points={[
-          "Project details the bot can quote: community, handover, payment plan, permit number",
-          "Units and prices, imported from Excel or CSV",
-          "Viewing slots leads can book",
-        ]}
-      />
+    <Page
+      title="Projects"
+      arabic="المشاريع"
+      intro="Your projects, units, prices and viewing slots. The bot quotes these details to leads and books viewings from the free slots."
+    >
+      <ProjectsClient />
     </Page>
   );
 }

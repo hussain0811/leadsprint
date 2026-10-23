@@ -1,21 +1,14 @@
-import { ComingInStep, Page } from "@/components/page";
-import { HealthStatus } from "./health-status";
+import { Page } from "@/components/page";
+import { DashboardClient } from "./dashboard/dashboard-client";
 
 export default function DashboardPage() {
   return (
-    <Page title="Dashboard" arabic="لوحة التحكم" intro="How your leads are doing today. For now it shows what's in the local database.">
-      <div className="mt-8">
-        <HealthStatus />
-      </div>
-      <ComingInStep
-        step={9}
-        what="the dashboard"
-        points={[
-          "New, hot, warm and cold leads at a glance",
-          "Response times and viewings booked",
-          "Which connections need attention",
-        ]}
-      />
+    <Page
+      title="Dashboard"
+      arabic="لوحة التحكم"
+      intro="How fast your leads hear back, how many qualify and book a viewing, and what's left to set up."
+    >
+      <DashboardClient />
     </Page>
   );
 }
