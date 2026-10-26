@@ -137,7 +137,7 @@ export function LeadsClient() {
         </Field>
         <div className="flex items-end pb-1.5">
           <Switch checked={filters.needsPerson} onCheckedChange={(next) => change({ needsPerson: next })}>
-            Only leads that need a person
+            Needs a person
           </Switch>
         </div>
       </form>

@@ -105,11 +105,32 @@ function PeriodPicker({ value, onChange }: { value: Period; onChange: (p: Period
   );
 }
 
-function Stat({ label, value, note, tone }: { label: string; value: ReactNode; note?: ReactNode; tone?: "warn" }) {
+function Stat({
+  label,
+  value,
+  note,
+  tone,
+  href,
+}: {
+  label: string;
+  value: ReactNode;
+  note?: ReactNode;
+  tone?: "warn";
+  href?: string;
+}) {
+  const color = tone === "warn" ? "text-warn" : href ? "text-marina" : "";
   return (
     <div className="min-w-[8rem]">
       <dt className="text-[14px] text-muted">{label}</dt>
-      <dd className={`text-[1.75rem] font-semibold leading-tight tabular-nums ${tone === "warn" ? "text-warn" : ""}`}>{value}</dd>
+      <dd className={`text-[1.75rem] font-semibold leading-tight tabular-nums ${color}`}>
+        {href ? (
+          <Link href={href} className="underline-offset-4 hover:underline" aria-label={`${label}: ${value}`}>
+            {value}
+          </Link>
+        ) : (
+          value
+        )}
+      </dd>
       {note && <dd className="mt-0.5 text-[13px] leading-snug text-muted">{note}</dd>}
     </div>
   );
@@ -127,7 +148,7 @@ function Dashboard({ data }: { data: DashboardData }) {
         intro={`New leads ${data.period === "today" ? "today" : `in the ${periodText}`}, and how ready they are.`}
       >
         <dl className="flex flex-wrap gap-x-10 gap-y-5">
-          <Stat label="New leads" value={num(leads.new)} />
+          <Stat label="New leads" value={num(leads.new)} href="/leads" />
           <Stat
             label="Qualified"
             value={pct(leads.qualifiedRate)}
@@ -139,9 +160,17 @@ function Dashboard({ data }: { data: DashboardData }) {
             note={leads.callsBooked ? `and ${num(leads.callsBooked)} call${leads.callsBooked === 1 ? "" : "s"}` : undefined}
           />
           <Stat
-            label="Need a person"
+            label="Needs a person"
             value={num(leads.needingPerson)}
-            note={leads.needingPerson ? <Link href="/inbox" className={LINK}>Open the inbox</Link> : "Right now, any period"}
+            href="/inbox?needs=1"
+            note={
+              <>
+                Right now.{" "}
+                <Link href="/inbox?needs=1" className={LINK}>
+                  Open the inbox
+                </Link>
+              </>
+            }
             tone={leads.needingPerson ? "warn" : undefined}
           />
         </dl>
@@ -283,19 +312,26 @@ function Dashboard({ data }: { data: DashboardData }) {
 function ScoreSplit({ leads }: { leads: DashboardData["leads"] }) {
   if (leads.new === 0) return null;
   const parts = [
-    { label: "Hot", n: leads.hot, cls: "bg-bad" },
-    { label: "Warm", n: leads.warm, cls: "bg-warn" },
-    { label: "Cold", n: leads.cold, cls: "bg-marina" },
-    { label: "Not scored yet", n: leads.unknown, cls: "bg-line" },
+    { score: "hot", label: "Hot", n: leads.hot, cls: "bg-bad" },
+    { score: "warm", label: "Warm", n: leads.warm, cls: "bg-warn" },
+    { score: "cold", label: "Cold", n: leads.cold, cls: "bg-marina" },
+    // Muted, not line: the line token nearly vanishes on the dark background.
+    { score: "unknown", label: "No score yet", n: leads.unknown, cls: "bg-muted" },
   ];
   return (
     <div className="mt-6">
       <h3 className="text-[14px] text-muted">Score of new leads</h3>
       <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-[14px]">
         {parts.map((p) => (
-          <li key={p.label} className="inline-flex items-center gap-2">
-            <span aria-hidden className={`size-2.5 rounded-[2px] ${p.cls}`} />
-            {p.label} <span className="font-semibold tabular-nums">{num(p.n)}</span>
+          <li key={p.score}>
+            <Link
+              href={`/leads?score=${p.score}`}
+              className="group inline-flex items-center gap-2"
+            >
+              <span aria-hidden className={`size-2.5 rounded-[2px] ${p.cls}`} />
+              <span className="text-marina underline-offset-4 group-hover:underline">{p.label}</span>
+              <span className="font-semibold tabular-nums">{num(p.n)}</span>
+            </Link>
           </li>
         ))}
       </ul>

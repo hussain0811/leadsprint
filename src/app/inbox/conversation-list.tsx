@@ -116,7 +116,7 @@ export function ConversationList({
               : `${data.items.length} conversation${data.items.length === 1 ? "" : "s"}${data.items.length >= 200 ? " (newest 200)" : ""}`}
           </p>
           {data.items.length > 0 && (
-            <ul aria-label="Conversations" className="min-h-0 flex-1 divide-y divide-line overflow-y-auto border-y border-line lg:-mx-1 lg:px-1">
+            <ul aria-label="Conversations" className="divide-y divide-line border-y border-line lg:-mx-1 lg:max-h-[calc(100dvh-20rem)] lg:min-h-[20rem] lg:overflow-y-auto lg:px-1">
               {data.items.map((item) => (
                 <Row key={item.id} item={item} current={item.id === selectedId} now={now} onOpen={onOpen} />
               ))}
@@ -159,11 +159,11 @@ function Row({ item, current, now, onOpen }: { item: InboxItem; current: boolean
           </time>
         </span>
         <span className="truncate text-[13px] text-muted">{item.projectName ? <bdi>{item.projectName}</bdi> : "No project"}</span>
-        <span dir="auto" className={`truncate text-[13px] ${item.needsHuman ? "text-ink" : "text-muted"}`}>
+        <span className={`truncate text-[13px] ${item.needsHuman ? "text-ink" : "text-muted"}`}>
           {item.lastMessage ? (
             <>
               <span className="sr-only">{authorLabel(item.lastAuthor, item.leadName)}: </span>
-              {item.lastMessage}
+              <bdi dir="auto">{item.lastMessage}</bdi>
             </>
           ) : (
             "No messages yet"

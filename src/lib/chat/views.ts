@@ -88,11 +88,12 @@ export async function getConversationView(orgId: string, id: string): Promise<Co
   });
   if (!conv) return null;
   const lead = conv.lead;
-  const booking = await prisma.booking.findFirst({
-    where: { leadId: lead.id, status: "booked" },
-    orderBy: { startsAt: "asc" },
-    select: { startsAt: true, kind: true },
-  });
+  // The next upcoming booking; failing that, the latest past one.
+  const now = new Date();
+  const select = { startsAt: true, kind: true } as const;
+  const booking =
+    (await prisma.booking.findFirst({ where: { leadId: lead.id, status: "booked", startsAt: { gte: now } }, orderBy: { startsAt: "asc" }, select })) ??
+    (await prisma.booking.findFirst({ where: { leadId: lead.id, status: "booked" }, orderBy: { startsAt: "desc" }, select }));
   return {
     id: conv.id,
     lead: {

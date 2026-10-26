@@ -97,9 +97,13 @@ export function tallyRuns(runs: RunStamp[]) {
   return t;
 }
 
-/** A lead counts as qualified once the flow finished with it, or it booked a viewing or call. */
-export function isQualified(lead: { status: string; activeBookings: number }): boolean {
-  return lead.status === "qualified" || lead.activeBookings > 0;
+/**
+ * A lead counts as qualified once it booked a viewing or call, or the flow finished with it,
+ * unless it said it is just browsing (a booking still counts).
+ */
+export function isQualified(lead: { status: string; activeBookings: number; intent?: string | null }): boolean {
+  if (lead.activeBookings > 0) return true;
+  return lead.status === "qualified" && lead.intent !== "browsing";
 }
 
 export function parseStringArray(raw: string | null | undefined): string[] {

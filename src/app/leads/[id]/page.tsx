@@ -1,14 +1,9 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { Page } from "@/components/page";
-import { LeadDetailClient } from "./lead-detail-client";
+import { LeadDetailRoute } from "./lead-detail-client";
 
-async function LeadDetailForParams({ params }: { params: PageProps<"/leads/[id]">["params"] }) {
-  const { id } = await params;
-  return <LeadDetailClient id={id} />;
-}
-
-export default function LeadPage({ params }: PageProps<"/leads/[id]">) {
+export default function LeadPage() {
   return (
     <Page title="Lead" arabic="العميل" intro="Everything the bot learned from this person, and what's booked.">
       <p className="mt-5 text-[14px]">
@@ -16,8 +11,9 @@ export default function LeadPage({ params }: PageProps<"/leads/[id]">) {
           Back to all leads
         </Link>
       </p>
+      {/* The lead id is read in the browser (useParams), so the page shell never waits on the server for it. */}
       <Suspense fallback={<p className="mt-8 text-muted">Loading this lead…</p>}>
-        <LeadDetailForParams params={params} />
+        <LeadDetailRoute />
       </Suspense>
     </Page>
   );

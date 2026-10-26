@@ -114,8 +114,10 @@ test("turns are tallied by who answered and what went wrong", () => {
   assert.deepEqual(t, { ai: 2, scripted: 3, fallbacks: 2, offTopic: 1, refused: 1 });
 });
 
-test("qualified means the flow finished or a viewing was booked", () => {
+test("qualified means the flow finished or a viewing was booked, but not just browsing", () => {
   assert.equal(isQualified({ status: "qualified", activeBookings: 0 }), true);
+  assert.equal(isQualified({ status: "qualified", activeBookings: 0, intent: "browsing" }), false);
+  assert.equal(isQualified({ status: "qualified", activeBookings: 1, intent: "browsing" }), true);
   assert.equal(isQualified({ status: "handed_off", activeBookings: 1 }), true);
   assert.equal(isQualified({ status: "qualifying", activeBookings: 0 }), false);
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Button, Field, Input, NoticeLine, Section, Select, Switch, Textarea, type Notice } from "@/components/ui";
 import { apiFetch } from "@/lib/api-client";
@@ -139,7 +140,7 @@ export function ChatClient() {
       } else {
         setNotice({
           tone: "ok",
-          text: body.humanTakeover ? "You've taken over. The bot stays quiet until you hand back." : "Handed back to the bot.",
+          text: body.humanTakeover ? "A person is answering. The bot stays quiet until you hand back." : "Handed back to the bot.",
         });
       }
     });
@@ -376,15 +377,24 @@ function Tester({
           <p className="text-[14px] text-muted">
             {view.lead.projectName ? <bdi>{view.lead.projectName}</bdi> : "No project"} ·{" "}
             {view.lead.language === "ar" ? "Arabic" : "English"}
+            {view.humanTakeover && <span className="font-medium text-brass"> · A person is answering</span>}
+          </p>
+          <p className="mt-1 flex flex-wrap gap-x-4 text-[14px]">
+            <Link href={`/inbox?c=${encodeURIComponent(view.id)}`} className="text-marina underline underline-offset-2">
+              Open in Inbox
+            </Link>
+            <Link href={`/leads/${encodeURIComponent(view.lead.id)}`} className="text-marina underline underline-offset-2">
+              Open the lead
+            </Link>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <Switch checked={view.forceScripted} onCheckedChange={onScripted} disabled={busy !== null}>
             Scripted only
           </Switch>
-          <Switch checked={view.humanTakeover} onCheckedChange={onTakeover} disabled={busy !== null}>
-            Take over as a person
-          </Switch>
+          <Button variant="secondary" onClick={() => onTakeover(!view.humanTakeover)} disabled={busy !== null}>
+            {busy === "takeover" ? "Saving…" : view.humanTakeover ? "Hand back to the bot" : "Take over"}
+          </Button>
           <Button variant="danger" className="px-0" onClick={onDelete} disabled={busy !== null}>
             {busy === "delete" ? "Deleting…" : "Delete test conversation"}
           </Button>

@@ -156,7 +156,7 @@ function Transcript({ view }: { view: ConversationView }) {
         const el = e.currentTarget;
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
       }}
-      className="my-3 grid max-h-[60vh] min-h-[12rem] flex-1 content-start gap-3 overflow-y-auto rounded-[4px] py-1 pr-1 lg:max-h-none"
+      className="my-3 grid h-[60vh] max-h-[44rem] min-h-[18rem] content-start gap-3 overflow-y-auto rounded-[4px] py-1 pr-1"
     >
       {count === 0 && <li className="py-6 text-center text-[14px] text-muted">No messages yet.</li>}
       {view.messages.map((m, i) => {
@@ -233,7 +233,13 @@ function MessageItem({ message, leadName, day }: { message: MessageView; leadNam
         )}
         {(m.kind === "buttons" || m.kind === "list") && (
           <div className="mt-1.5 text-[12px] text-muted">
-            <span>{m.kind === "list" ? `Menu "${m.buttonLabel}" offered: ` : "Buttons offered: "}</span>
+            <span>{m.kind === "list" ? (
+                <>
+                  Offered a list: <bdi>{m.buttonLabel}</bdi>
+                </>
+              ) : (
+                "Offered buttons:"
+              )}</span>
             <ul className="mt-1 flex flex-wrap gap-1.5">
               {(m.kind === "buttons" ? m.buttons : m.rows).map((o) => (
                 <li key={o.id} dir="auto" className="rounded-[3px] border border-line px-1.5 py-0.5 text-[12px] text-ink">

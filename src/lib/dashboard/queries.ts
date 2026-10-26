@@ -25,7 +25,7 @@ async function setupChecklist(orgId: string, now: Date): Promise<SetupItem[]> {
   const aiModel = aiRow ? readAiConfig(aiRow)?.chatModel : null;
   const ai: SetupItem = {
     key: "ai",
-    label: "AI connection",
+    label: "AI model",
     href: "/connections",
     done: aiProblem === null,
     tone: aiProblem === null ? "ok" : aiRow?.status === "error" ? "bad" : aiRow ? "warn" : "muted",
@@ -108,6 +108,7 @@ export async function getDashboard(orgId: string, period: Period, now = new Date
           score: true,
           status: true,
           createdAt: true,
+          qualification: true,
           _count: { select: { bookings: { where: { status: { not: "cancelled" } } } } },
         },
       }),
@@ -149,7 +150,11 @@ export async function getDashboard(orgId: string, period: Period, now = new Date
     ]);
 
   const score = (s: string) => newLeads.filter((l) => l.score === s).length;
-  const qualified = newLeads.filter((l) => isQualified({ status: l.status, activeBookings: l._count.bookings })).length;
+  const qualified = newLeads.filter((l) => isQualified({
+      status: l.status,
+      activeBookings: l._count.bookings,
+      intent: parseJson<{ intent?: string }>(l.qualification, {}).intent ?? null,
+    })).length;
   const bookedOf = (kind: string) => bookings.find((b) => b.kind === kind)?._count._all ?? 0;
 
   const replyTimes = conversations.map((c) => firstReplyMs(c.messages)).filter((t): t is number | null => t !== undefined);

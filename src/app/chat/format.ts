@@ -49,10 +49,11 @@ export function formatNumber(n: number) {
   return NUMBER.format(n);
 }
 
-export function formatAed(n: number) {
-  if (n >= 1_000_000) return `AED ${+(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `AED ${+(n / 1_000).toFixed(0)}K`;
-  return `AED ${formatNumber(n)}`;
+// 1000000 -> "1M", 1500000 -> "1.5M", 60000 -> "60K"
+function shortAmount(n: number) {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${+(n / 1_000).toFixed(0)}K`;
+  return formatNumber(n);
 }
 
 // The 24-hour window: WhatsApp lets a business send free-form messages only within 24 hours of the lead's last message.
@@ -84,9 +85,10 @@ export function qualificationRows(q: Qualification): Array<[string, string]> {
   add("Wants to", choice("intent", q.intent));
   add("Purpose", choice("purpose", q.purpose));
   if (q.budgetMin !== undefined || q.budgetMax !== undefined) {
-    const min = q.budgetMin !== undefined ? formatAed(q.budgetMin) : null;
-    const max = q.budgetMax !== undefined ? formatAed(q.budgetMax) : null;
-    add("Budget", min && max ? `${min} to ${max}` : min ? `From ${min}` : `Up to ${max}`);
+    // "AED 1M–2M", "Up to AED 1M", "From AED 5M"
+    const min = q.budgetMin ? shortAmount(q.budgetMin) : null;
+    const max = q.budgetMax !== undefined ? shortAmount(q.budgetMax) : null;
+    add("Budget", min && max ? `AED ${min}–${max}` : min ? `From AED ${min}` : `Up to AED ${max}`);
   }
   add("Property", choice("propertyType", q.propertyType));
   if (q.bedrooms !== undefined) add("Bedrooms", q.bedrooms === 0 ? "Studio" : String(q.bedrooms));

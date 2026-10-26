@@ -36,7 +36,7 @@ export type TurnFacts = {
   settings: OrgSettings;
   forceScripted: boolean;
   lead: TurnLead;
-  recentInboundAt: Date[]; // earlier inbound messages in the last minute (not this one)
+  recentInboundAt: Date[]; // earlier typed (not tapped) inbound messages in the last minute, not this one
   aiUnavailable: string | null; // why the AI connection can't be used, null when it's ready
   monthTokensUsed: number;
   flow: FlowDefinition;
@@ -46,7 +46,7 @@ export type TurnFacts = {
 };
 
 export type TurnDeps = {
-  freeChecks: (text: string, ctx: { settings: OrgSettings; recentInboundAt: Date[]; blocked: boolean; now?: Date }) => FreeCheckResult;
+  freeChecks: (text: string, ctx: { settings: OrgSettings; recentInboundAt: Date[]; blocked: boolean; now?: Date; tap?: boolean }) => FreeCheckResult;
   advanceFlow: (def: FlowDefinition, state: FlowState, input: InboundInput, ctx: FlowContext) => FlowResult;
   scoreLead: (q: Qualification) => { score: Score; reasons: string[] };
   runAgent: (input: InboundInput, lang: Lang) => Promise<AgentTurnResult>;
@@ -56,10 +56,16 @@ export type OutgoingRecord = { author: "bot" | "ai" | "system"; message: Outgoin
 
 export type LeadChanges = TurnLead & { score?: Score; scoreReasons?: string[] };
 
+export type StatusFlags = { handoff: boolean; finished: boolean; booked: boolean; browsing: boolean };
+
 export type TurnOutcome = {
   messages: OutgoingRecord[];
   lead: LeadChanges;
+  // What decides the lead's status; null = leave it. The pipeline applies it to the status as it is
+  // when the turn is saved (lead.status here is the same rule applied to the status read at the start).
+  statusFlags: StatusFlags | null;
   flowState: FlowState | null; // the new flow position, or null when unchanged
+  flowStateBefore: FlowState | null; // the position the flow answered from (to ask a taken slot again)
   needsHuman: boolean; // true = flag the conversation for a person (never clears it)
   booking: { slotId: string } | null;
   trace: TurnTrace;
@@ -125,10 +131,11 @@ export function mergeQualification(q: Qualification, patch: Partial<Qualificatio
   return next;
 }
 
-export function nextStatus(current: string, f: { handoff: boolean; finished: boolean; booked: boolean }): string {
+// A lead who finished the flow only browsing stays "qualifying"; the score marks them cold.
+export function nextStatus(current: string, f: { handoff: boolean; finished: boolean; booked: boolean; browsing?: boolean }): string {
   if (f.handoff) return "handed_off";
   if (current === "handed_off" || current === "closed") return current;
-  if (f.booked || f.finished) return "qualified";
+  if (f.booked || (f.finished && !f.browsing)) return "qualified";
   return "qualifying";
 }
 
@@ -143,14 +150,22 @@ export async function runTurn(f: TurnFacts, deps: TurnDeps): Promise<TurnOutcome
   const finish = (o: Omit<TurnOutcome, "lead">): TurnOutcome => ({ ...o, lead, trace: { ...o.trace, ms: Date.now() - started } });
 
   // 1. Free checks: no AI and no flow step when they fail.
-  const check = deps.freeChecks(f.text, { settings: f.settings, recentInboundAt: f.recentInboundAt, blocked: f.lead.blocked, now: f.now });
+  const check = deps.freeChecks(f.text, { settings: f.settings, recentInboundAt: f.recentInboundAt, blocked: f.lead.blocked, now: f.now, tap: Boolean(f.input.replyId) });
   if (!check.ok) {
     if (check.strike) {
       lead.strikes += 1;
       if (lead.strikes >= f.settings.strikeLimit) lead.aiStopped = true;
     }
     const messages: OutgoingRecord[] = check.reply ? [{ author: "bot", message: { kind: "text", body: localize(check.reply, f.lead.language) } }] : [];
-    return finish({ messages, flowState: null, needsHuman: false, booking: null, trace: emptyTrace("none", FREE_CHECK_WHY[check.reason], check) });
+    return finish({
+      messages,
+      statusFlags: null,
+      flowState: null,
+      flowStateBefore: null,
+      needsHuman: false,
+      booking: null,
+      trace: emptyTrace("none", FREE_CHECK_WHY[check.reason], check),
+    });
   }
 
   // 2. Who answers.
@@ -182,33 +197,81 @@ export async function runTurn(f: TurnFacts, deps: TurnDeps): Promise<TurnOutcome
       error: result.error,
     };
 
-    if (result.error || result.messages.length === 0) {
-      const why = result.error ? "AI error, scripted fallback" : "AI gave no reply, scripted fallback";
-      return finish(scriptedTurn(f, deps, lead, { ...aiTrace, mode: "scripted", why }));
+    // What the agent collected or booked counts even when its reply doesn't.
+    lead.qualification = mergeQualification(lead.qualification, result.patch);
+
+    if (result.messages.length === 0 && result.handoff) {
+      // Handed over without a reply: say the flow's handoff line rather than asking the next question.
+      const body = fillText(localize(f.flow.handoff, lead.language), f);
+      const messages: OutgoingRecord[] = [{ author: "bot", message: { kind: "text", body } }];
+      addHandoffNote(messages);
+      return finish(aiOutcome(lead, deps, messages, true, result.booking, { ...aiTrace, why: "AI handed the lead to a person" }));
     }
 
-    lead.qualification = mergeQualification(lead.qualification, result.patch);
-    rescore(lead, deps);
-    lead.status = nextStatus(lead.status, { handoff: result.handoff, finished: false, booked: Boolean(result.booking) });
+    if (result.error || result.messages.length === 0) {
+      const why = result.error ? "AI error, scripted fallback" : "AI gave no reply, scripted fallback";
+      // The AI was leading, so the flow's saved position is stale: let it pick the next unanswered question.
+      const from: FlowState = { stepId: null, lang: f.flowState?.lang ?? lead.language, retries: 0 };
+      const out = scriptedTurn(f, deps, lead, { ...aiTrace, mode: "scripted", why }, from);
+      if (result.booking && !out.booking) {
+        out.booking = result.booking;
+        out.statusFlags = { ...(out.statusFlags ?? { handoff: false, finished: false, browsing: false }), booked: true };
+        lead.status = nextStatus(f.lead.status, out.statusFlags);
+      }
+      return finish(out);
+    }
+
     const messages: OutgoingRecord[] = result.messages.map((message) => ({ author: message.kind === "note" ? "system" : "ai", message }));
     if (result.handoff) addHandoffNote(messages);
-    return finish({ messages, flowState: null, needsHuman: result.handoff, booking: result.booking, trace: aiTrace });
+    return finish(aiOutcome(lead, deps, messages, result.handoff, result.booking, aiTrace));
   }
 
   return finish(scriptedTurn(f, deps, lead, emptyTrace("scripted", choice.why, check)));
 }
 
-function scriptedTurn(f: TurnFacts, deps: TurnDeps, lead: LeadChanges, trace: TurnTrace): Omit<TurnOutcome, "lead"> {
-  const state: FlowState = f.flowState ?? { stepId: f.flow.start || null, lang: f.lead.language, retries: 0 };
+function aiOutcome(
+  lead: LeadChanges,
+  deps: TurnDeps,
+  messages: OutgoingRecord[],
+  handoff: boolean,
+  booking: { slotId: string } | null,
+  trace: TurnTrace,
+): Omit<TurnOutcome, "lead"> {
+  rescore(lead, deps);
+  const statusFlags: StatusFlags = { handoff, finished: false, booked: Boolean(booking), browsing: lead.qualification.intent === "browsing" };
+  lead.status = nextStatus(lead.status, statusFlags);
+  return { messages, statusFlags, flowState: null, flowStateBefore: null, needsHuman: handoff, booking, trace };
+}
+
+function scriptedTurn(f: TurnFacts, deps: TurnDeps, lead: LeadChanges, trace: TurnTrace, from?: FlowState): Omit<TurnOutcome, "lead"> {
+  const state: FlowState = from ?? f.flowState ?? { stepId: f.flow.start || null, lang: f.lead.language, retries: 0 };
   const flowCtx = { ...f.flowCtx, qualification: lead.qualification };
   const result = deps.advanceFlow(f.flow, state, f.input, flowCtx);
   lead.qualification = mergeQualification(lead.qualification, result.patch);
   lead.language = result.state.lang;
   rescore(lead, deps);
-  lead.status = nextStatus(lead.status, { handoff: result.handoff, finished: result.state.stepId === null, booked: Boolean(result.booking) });
+  const statusFlags: StatusFlags = {
+    handoff: result.handoff,
+    finished: result.state.stepId === null,
+    booked: Boolean(result.booking),
+    browsing: lead.qualification.intent === "browsing",
+  };
+  lead.status = nextStatus(lead.status, statusFlags);
   const messages: OutgoingRecord[] = result.messages.map((message) => ({ author: message.kind === "note" ? "system" : "bot", message }));
   if (result.handoff) addHandoffNote(messages);
-  return { messages, flowState: result.state, needsHuman: result.handoff, booking: result.booking ?? null, trace };
+  return {
+    messages,
+    statusFlags,
+    flowState: result.state,
+    flowStateBefore: state,
+    needsHuman: result.handoff,
+    booking: result.booking ?? null,
+    trace,
+  };
+}
+
+function fillText(text: string, f: TurnFacts): string {
+  return text.replaceAll("{org}", f.flowCtx.orgName).replaceAll("{project}", f.flowCtx.projectName ?? "");
 }
 
 function rescore(lead: LeadChanges, deps: TurnDeps) {
@@ -220,4 +283,67 @@ function rescore(lead: LeadChanges, deps: TurnDeps) {
 // Tells the admin the lead was passed on, unless the reply already carries a note.
 function addHandoffNote(messages: OutgoingRecord[]) {
   if (!messages.some((m) => m.message.kind === "note")) messages.push({ author: "system", message: { kind: "note", body: HANDOFF_NOTE } });
+}
+
+/* ---------- Helpers the pipeline uses when saving a turn ---------- */
+
+/** A reply that can no longer be sent (a person took over, or the lead was blocked) is kept as admin notes. */
+export function asUnsentNotes(messages: OutgoingRecord[], reason: string): OutgoingRecord[] {
+  return messages
+    .filter((m) => m.message.kind !== "note")
+    .map((m) => ({ author: "system" as const, message: { kind: "note" as const, body: `Not sent (${reason}): ${m.message.body}` } }));
+}
+
+export type BookResult = { ok: true } | { ok: false; reason: "taken" | "already_booked"; existingAt?: string };
+
+const TAKEN: Localized = {
+  en: "Sorry, that time was just taken. Please pick another time.",
+  ar: "عذرًا، هذا الموعد حُجز للتو. اختر موعدًا آخر من فضلك.",
+};
+const NO_OTHER: Localized = {
+  en: "Sorry, that time was just taken and there are no other free times right now. Our team will arrange one with you.",
+  ar: "عذرًا، هذا الموعد حُجز للتو ولا توجد مواعيد أخرى متاحة الآن. سيتواصل معك فريقنا لترتيب موعد.",
+};
+const ALREADY: Localized = {
+  en: "You already have a booking on {time}. Reply here if you'd like to change it.",
+  ar: "لديك حجز بالفعل في {time}. راسلنا هنا إذا أردت تغييره.",
+};
+const PICK_TIME: Localized = { en: "Pick a time", ar: "اختر موعدًا" };
+
+/**
+ * Rewrites a turn's reply when its booking didn't go through. "taken": the confirmation is replaced
+ * by "just taken" and the free slots again (row ids match the flow's booking step). "already_booked":
+ * the confirmation is replaced by the existing booking's time and the rest of the reply is kept.
+ */
+export function replyForFailedBooking(
+  messages: OutgoingRecord[],
+  failed: Extract<BookResult, { ok: false }>,
+  lang: Lang,
+  slots: Array<{ id: string; title: string; description?: string }>,
+): OutgoingRecord[] {
+  const author = messages.find((m) => m.author !== "system")?.author ?? "bot";
+  if (failed.reason === "already_booked") {
+    const body = localize(ALREADY, lang).replace("{time}", failed.existingAt ?? "");
+    return [{ author, message: { kind: "text", body } }, ...messages.filter((m) => m.author !== "system").slice(1)];
+  }
+  if (slots.length === 0) return [{ author, message: { kind: "text", body: localize(NO_OTHER, lang) } }];
+  const rows = slots.slice(0, 10).map((s) => ({ id: `slot:${s.id}`, title: s.title.slice(0, 24), ...(s.description ? { description: s.description } : {}) }));
+  return [{ author, message: { kind: "list", body: localize(TAKEN, lang), buttonLabel: localize(PICK_TIME, lang), rows } }];
+}
+
+/** Counter changes as increments, so a turn that overlapped another (or an admin edit) doesn't undo its counts. */
+export function counterUpdate(before: TurnLead, after: TurnLead) {
+  return {
+    strikes: { increment: after.strikes - before.strikes },
+    tokensUsed: { increment: after.tokensUsed - before.tokensUsed },
+    offTopicStreak: after.offTopicStreak === 0 && before.offTopicStreak !== 0 ? 0 : { increment: after.offTopicStreak - before.offTopicStreak },
+    ...(after.aiStopped && !before.aiStopped ? { aiStopped: true } : {}),
+  };
+}
+
+/** The first moment of the current calendar month in Dubai time (UTC+4, no daylight saving). */
+export function dubaiMonthStart(now: Date): Date {
+  const offset = 4 * 3600_000;
+  const local = new Date(now.getTime() + offset);
+  return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), 1) - offset);
 }

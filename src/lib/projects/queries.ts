@@ -159,3 +159,13 @@ export async function getExistingUnits(orgId: string, projectId: string) {
   const units = await prisma.unit.findMany({ where: { orgId, projectId }, select: UNIT_SELECT });
   return units.map(unitView);
 }
+
+/**
+ * The unit in the project whose number matches `unitNo` ignoring case (other than `exceptId`), if any.
+ * The database only refuses exact duplicates; the importer matches without case, so manual edits do too.
+ */
+export async function findUnitNoClash(orgId: string, projectId: string, unitNo: string, exceptId?: string) {
+  const wanted = unitNo.trim().toLowerCase();
+  const units = await prisma.unit.findMany({ where: { orgId, projectId }, select: { id: true, unitNo: true } });
+  return units.find((u) => u.id !== exceptId && u.unitNo.trim().toLowerCase() === wanted) ?? null;
+}

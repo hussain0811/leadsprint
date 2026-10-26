@@ -119,6 +119,7 @@ export function Units({
     }
     setSaving(true);
     setNotice(null);
+    setListNotice(null);
     try {
       const res = await apiFetch<{ unit: UnitView }>(projectPath(projectId, "/units"), { method: "POST", json: checked.unit });
       onChange(sortUnits([...units, res.unit]));
@@ -135,6 +136,7 @@ export function Units({
 
   function saved(unit: UnitView) {
     onChange(sortUnits(units.map((u) => (u.id === unit.id ? unit : u))));
+    setNotice(null); // an earlier "Added unit…" no longer describes the latest change
     setListNotice({ tone: "ok", text: `Saved unit ${unit.unitNo}.` });
   }
 
@@ -243,7 +245,7 @@ export function Units({
         </p>
       ) : (
         <div className="relative mt-5 overflow-x-auto border-y border-line">
-          <table className="w-full min-w-[46rem] border-collapse text-left text-[14px]">
+          <table className="w-full min-w-[42rem] border-collapse text-left text-[14px]">
             <caption className="sr-only">Units in this project</caption>
             <thead>
               <tr className="border-b border-line text-[13px] text-muted">
@@ -255,7 +257,7 @@ export function Units({
                 <th scope="col" className="py-2.5 pr-3 font-medium">Status</th>
                 <th scope="col" className="py-2.5 pr-3 font-medium">Floor</th>
                 <th scope="col" className="py-2.5 pr-3 font-medium">View</th>
-                <th scope="col" className="py-2.5 font-medium">
+                <th scope="col" className={`py-2.5 font-medium ${ACTIONS}`}>
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
@@ -277,7 +279,8 @@ function sortUnits(units: UnitView[]) {
 }
 
 const CELL = "py-2.5 pr-3 align-top";
-const SMALL = "h-8 px-2 text-[13px]";
+// Edit and Delete stay in view while the rest of a wide table scrolls sideways.
+const ACTIONS = "sticky right-0 bg-glass pr-0 pl-3 shadow-[-1px_0_0_var(--line)]";
 
 function UnitRow({
   projectId,
@@ -297,7 +300,6 @@ function UnitRow({
   const editButton = useRef<HTMLButtonElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
-  const formId = `${uid}-form`;
 
   function edit<K extends keyof Draft>(field: K, value: Draft[K]) {
     setDraft((d) => d && { ...d, [field]: value });
@@ -361,81 +363,83 @@ function UnitRow({
     }
   }
 
-  const label = (what: string) => `${what} for unit ${unit.unitNo}`;
   const noticeRow = (
     <NoticeLine notice={notice} reserve={false} className={notice ? "pb-2.5" : "sr-only"} />
   );
 
+  const field = (name: string) => `${uid}-${name}`;
+
   if (draft) {
+    // The editor spans the whole row, so every field is readable and the buttons stay in view at any width.
     return (
-      <tr className="bg-panel">
-        <td className={CELL}>
-          {/* The inputs sit in separate cells, so they join this form through their form attribute. */}
-          <form id={formId} onSubmit={save} aria-label={`Edit unit ${unit.unitNo}`} />
-          <Input
-            form={formId}
-            aria-label={label("Unit number")}
-            dir="auto"
-            className={`${SMALL} w-24`}
-            value={draft.unitNo}
-            onChange={(e) => edit("unitNo", e.target.value)}
-            required
-            maxLength={40}
-            autoFocus
-          />
-          {noticeRow}
-        </td>
-        <td className={CELL}>
-          <Select form={formId} aria-label={label("Type")} className={`${SMALL} w-30`} value={draft.type} onChange={(e) => edit("type", e.target.value as UnitType)}>
-            {UNIT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {UNIT_TYPE_LABEL[t]}
-              </option>
-            ))}
-          </Select>
-        </td>
-        <td className={CELL}>
-          <Select form={formId} aria-label={label("Bedrooms")} className={`${SMALL} w-20`} value={draft.bedrooms} onChange={(e) => edit("bedrooms", e.target.value)}>
-            <BedroomOptions current={unit.bedrooms} />
-          </Select>
-        </td>
-        <td className={CELL}>
-          <Input form={formId} aria-label={label("Size in square feet")} inputMode="decimal" className={`${SMALL} w-20 text-right`} value={draft.sizeSqft} onChange={(e) => edit("sizeSqft", e.target.value)} />
-        </td>
-        <td className={CELL}>
-          <Input form={formId} aria-label={label("Price in AED")} inputMode="decimal" className={`${SMALL} w-28 text-right`} value={draft.price} onChange={(e) => edit("price", e.target.value)} required />
-        </td>
-        <td className={CELL}>
-          <Select form={formId} aria-label={label("Status")} className={`${SMALL} w-28`} value={draft.status} onChange={(e) => edit("status", e.target.value as UnitStatus)}>
-            {UNIT_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {UNIT_STATUS_LABEL[s]}
-              </option>
-            ))}
-          </Select>
-        </td>
-        <td className={CELL}>
-          <Input form={formId} aria-label={label("Floor")} dir="auto" className={`${SMALL} w-16`} value={draft.floor} onChange={(e) => edit("floor", e.target.value)} maxLength={20} />
-        </td>
-        <td className={CELL}>
-          <Input form={formId} aria-label={label("View")} dir="auto" className={`${SMALL} w-28`} value={draft.view} onChange={(e) => edit("view", e.target.value)} maxLength={100} />
-        </td>
-        <td className={`${CELL} pr-0`}>
-          <div className="flex items-center gap-x-4 whitespace-nowrap">
-            <TextButton ref={saveButton} type="submit" form={formId} disabled={busy !== null}>
-              {busy === "save" ? "Saving…" : "Save"}
-            </TextButton>
-            <TextButton onClick={() => stopEdit()} disabled={busy !== null} className="text-muted">
-              Cancel
-            </TextButton>
-          </div>
+      <tr key="editing" className="bg-panel">
+        <td colSpan={9} className="px-3 py-4">
+          <form onSubmit={save} aria-label={`Edit unit ${unit.unitNo}`} className="grid gap-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+              <Field label="Unit number" htmlFor={field("unitNo")}>
+                <Input
+                  id={field("unitNo")}
+                  dir="auto"
+                  value={draft.unitNo}
+                  onChange={(e) => edit("unitNo", e.target.value)}
+                  required
+                  maxLength={40}
+                  autoFocus
+                />
+              </Field>
+              <Field label="Type" htmlFor={field("type")}>
+                <Select id={field("type")} value={draft.type} onChange={(e) => edit("type", e.target.value as UnitType)}>
+                  {UNIT_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {UNIT_TYPE_LABEL[t]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Bedrooms" htmlFor={field("bedrooms")}>
+                <Select id={field("bedrooms")} value={draft.bedrooms} onChange={(e) => edit("bedrooms", e.target.value)}>
+                  <BedroomOptions current={unit.bedrooms} />
+                </Select>
+              </Field>
+              <Field label="Status" htmlFor={field("status")}>
+                <Select id={field("status")} value={draft.status} onChange={(e) => edit("status", e.target.value as UnitStatus)}>
+                  {UNIT_STATUSES.map((st) => (
+                    <option key={st} value={st}>
+                      {UNIT_STATUS_LABEL[st]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Price (AED)" htmlFor={field("price")}>
+                <Input id={field("price")} inputMode="decimal" value={draft.price} onChange={(e) => edit("price", e.target.value)} required />
+              </Field>
+              <Field label="Size (sq ft)" htmlFor={field("size")}>
+                <Input id={field("size")} inputMode="decimal" value={draft.sizeSqft} onChange={(e) => edit("sizeSqft", e.target.value)} />
+              </Field>
+              <Field label="Floor" htmlFor={field("floor")}>
+                <Input id={field("floor")} dir="auto" value={draft.floor} onChange={(e) => edit("floor", e.target.value)} maxLength={20} />
+              </Field>
+              <Field label="View" htmlFor={field("view")}>
+                <Input id={field("view")} dir="auto" value={draft.view} onChange={(e) => edit("view", e.target.value)} maxLength={100} />
+              </Field>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button key="save" ref={saveButton} type="submit" disabled={busy !== null}>
+                {busy === "save" ? "Saving…" : "Save unit"}
+              </Button>
+              <Button key="cancel" variant="secondary" onClick={() => stopEdit()} disabled={busy !== null}>
+                Cancel
+              </Button>
+            </div>
+            {noticeRow}
+          </form>
         </td>
       </tr>
     );
   }
 
   return (
-    <tr>
+    <tr key="showing">
       <th scope="row" className={`${CELL} font-medium`}>
         <bdi>{unit.unitNo}</bdi>
         {noticeRow}
@@ -453,11 +457,14 @@ function UnitRow({
       <td className={CELL} dir="auto">
         {unit.view ?? "–"}
       </td>
-      <td className={`${CELL} pr-0`}>
+      <td className={`${CELL} ${ACTIONS}`}>
         <div className="flex items-center gap-x-4 whitespace-nowrap">
           <TextButton
+            key="edit"
             ref={editButton}
-            onClick={() => {
+            onClick={(event) => {
+              // Never let this click reach a form; the editor's Save button replaces this one.
+              event.preventDefault();
               setDraft(toDraft(unit));
               setNotice(null);
             }}
@@ -466,7 +473,7 @@ function UnitRow({
           >
             Edit
           </TextButton>
-          <TextButton ref={deleteButton} tone="bad" onClick={remove} disabled={busy !== null} aria-label={`Delete unit ${unit.unitNo}`}>
+          <TextButton key="delete" ref={deleteButton} tone="bad" onClick={remove} disabled={busy !== null} aria-label={`Delete unit ${unit.unitNo}`}>
             {busy === "delete" ? "Deleting…" : "Delete"}
           </TextButton>
         </div>

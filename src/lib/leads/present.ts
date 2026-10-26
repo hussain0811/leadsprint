@@ -3,7 +3,7 @@ import type { Tone } from "@/components/ui";
 
 // Plain-language labels for leads, shared by the list, the detail page and the CSV export. No server-only imports.
 
-export const SCORE_LABEL: Record<Score, string> = { hot: "Hot", warm: "Warm", cold: "Cold", unknown: "Unknown" };
+export const SCORE_LABEL: Record<Score, string> = { hot: "Hot", warm: "Warm", cold: "Cold", unknown: "No score yet" };
 export const SCORE_TONE: Record<Score, Tone> = { hot: "bad", warm: "warn", cold: "ok", unknown: "muted" };
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -56,7 +56,9 @@ export function budgetText(q: Qualification): string | undefined {
   const { budgetMin: min, budgetMax: max } = q;
   if (min === undefined && max === undefined) return undefined;
   const perYear = q.intent === "rent" ? " a year" : "";
-  if (min !== undefined && max !== undefined) return min === max ? `${aed(min)}${perYear}` : `${aed(min)} to ${aed(max)}${perYear}`;
+  // "AED 1M–2M": the currency once, an en dash between.
+  if (min !== undefined && max !== undefined)
+    return min === max ? `${aed(min)}${perYear}` : `${aed(min)}–${aed(max).replace(/^AED /, "")}${perYear}`;
   return min !== undefined ? `From ${aed(min)}${perYear}` : `Up to ${aed(max as number)}${perYear}`;
 }
 
@@ -108,12 +110,17 @@ export const CSV_BOM = "﻿";
 /**
  * One CSV cell. Text that Excel would run as a formula (starting with = + - @ or a tab/CR) gets a leading
  * apostrophe, so a lead who types "=HYPERLINK(...)" as their name can't plant a formula in the export.
+ * Phone numbers (only + digits spaces ( ) -) can't call a function, so they stay as typed.
  */
 export function csvCell(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return "";
   let text = String(value);
-  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text) && !isPhoneLike(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function isPhoneLike(text: string) {
+  return /^[+\d\s()-]+$/.test(text) && /\d/.test(text);
 }
 
 export function toCsv(header: string[], rows: Array<Array<string | number | boolean | null | undefined>>): string {

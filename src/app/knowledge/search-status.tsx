@@ -72,28 +72,26 @@ export function SearchStatus({ overview, onEmbedded }: { overview: KnowledgeOver
       <dl className="divide-y divide-line border-y border-line">
         <Row label="Search">
           {search.mode === "hybrid" ? (
-            <StatusLine tone="ok">
-              Meaning and keyword search, using <span className="font-medium wrap-break-word">{model ?? "your embedding model"}</span>.
-            </StatusLine>
+            <StatusLine tone="ok">Meaning search on, using your embedding model.</StatusLine>
           ) : model ? (
             // A model is chosen, but no passage has been embedded with it yet.
             <StatusLine tone="muted">
               Keyword search only for now.{" "}
-              {search.needsEmbedding > 0 ? (
-                <>
-                  Add meaning search below to start using <span className="font-medium wrap-break-word">{model}</span>.
-                </>
-              ) : (
-                <>
-                  Meaning search with <span className="font-medium wrap-break-word">{model}</span> starts with your first
-                  document or question.
-                </>
-              )}
+              {search.needsEmbedding > 0
+                ? "Add meaning search below to start matching meaning too."
+                : "Meaning search starts with your first document or question."}
             </StatusLine>
           ) : (
             <StatusLine tone="muted">
               Keyword search only. Add an embedding model in <ConnectionsLink /> to match meaning too.
             </StatusLine>
+          )}
+
+          {/* The model's id is technical, so it stays small, under the plain sentence. */}
+          {model && (
+            <p className="pl-4 text-[13px] text-muted wrap-break-word">
+              Embedding model: <span title={model}>{model}</span>
+            </p>
           )}
 
           {search.needsEmbedding > 0 && (
@@ -131,7 +129,7 @@ export function SearchStatus({ overview, onEmbedded }: { overview: KnowledgeOver
           <Row label="AI model">
             <StatusLine tone="muted">No AI model is connected.</StatusLine>
             <p className="mt-1 pl-4 text-[14px] leading-relaxed text-muted">
-              Documents and rules still save, and you can try a question to test search. Connect a model in{" "}
+              Documents and rules still save, and you can try a question to test search. Connect an AI model in{" "}
               <ConnectionsLink /> for the AI to use them and to see its answers.
             </p>
           </Row>

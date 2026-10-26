@@ -1,6 +1,8 @@
 import type { Prisma } from "@/generated/prisma/client";
 import type { Qualification, Score } from "@/lib/chat/types";
-import { parseJson } from "@/lib/connections";
+import { aiUnavailable } from "@/lib/chat/pipeline";
+import { findConnection, parseJson } from "@/lib/connections";
+import { answeringMode } from "@/lib/inbox/filters";
 import { prisma } from "@/lib/db";
 import { compareByScore, pageCount, phoneMatches, phoneSearchDigits } from "./filters";
 import { keyAnswers } from "./present";
@@ -152,11 +154,24 @@ export async function getLeadDetail(orgId: string, id: string): Promise<LeadDeta
       bookings: { orderBy: { startsAt: "desc" }, include: { project: { select: { name: true } } } },
       conversations: {
         orderBy: { updatedAt: "desc" },
-        select: { id: true, channel: true, needsHuman: true, humanTakeover: true, updatedAt: true, _count: { select: { messages: true } } },
+        select: { id: true, channel: true, forceScripted: true, needsHuman: true, humanTakeover: true, updatedAt: true, _count: { select: { messages: true } } },
       },
     },
   });
   if (!lead) return null;
+  const aiProblem = aiUnavailable(await findConnection(orgId, "ai"));
+  const conv = lead.conversations[0];
+  const answering = conv
+    ? answeringMode({ humanTakeover: conv.humanTakeover, forceScripted: conv.forceScripted, aiStopped: lead.aiStopped, aiReady: aiProblem === null })
+    : null;
+  const answeringWhy =
+    answering !== "scripted"
+      ? null
+      : conv.forceScripted
+        ? "Set to scripted only for this chat"
+        : lead.aiStopped
+          ? "AI stopped for this lead after too many strikes"
+          : aiProblem;
   return {
     id: lead.id,
     name: lead.name,
@@ -176,12 +191,15 @@ export async function getLeadDetail(orgId: string, id: string): Promise<LeadDeta
     blocked: lead.blocked,
     tokensUsed: lead.tokensUsed,
     needsPerson: lead.conversations.some((c) => c.needsHuman),
+    answering,
+    answeringWhy,
     createdAt: lead.createdAt.toISOString(),
     lastActivityAt: lastActivity(lead, lead.conversations),
     bookings: lead.bookings.map(toBookingView),
     conversations: lead.conversations.map((c) => ({
       id: c.id,
       channel: c.channel,
+      forceScripted: c.forceScripted,
       needsHuman: c.needsHuman,
       humanTakeover: c.humanTakeover,
       messageCount: c._count.messages,

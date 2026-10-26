@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { apiFetch, CONNECTIONS_CHANGED } from "@/lib/api-client";
 import type { ConnectionsResponse } from "@/lib/connections";
 import { StatusMark, type Tone } from "./ui";
@@ -68,8 +68,7 @@ function Wordmark() {
   );
 }
 
-function Board({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = usePathname();
+function Board({ pathname, onNavigate }: { pathname: string | null; onNavigate?: () => void }) {
   const status = useConnectionStatus();
   const [aiTone, aiText] = status?.ai ? (AI_STATUS[status.ai.status] ?? AI_STATUS.untested) : ["muted" as Tone, "Not connected"];
   const [fileTone, fileText] = status?.storage
@@ -86,7 +85,7 @@ function Board({ onNavigate }: { onNavigate?: () => void }) {
         {FLOORS.map((floor, i) => (
           <ul key={i} className={i > 0 ? "mt-3 border-t border-board-hi pt-3" : ""}>
             {floor.map((item) => {
-              const active = isActive(pathname, item.href);
+              const active = pathname !== null && isActive(pathname, item.href);
               return (
                 <li key={item.href}>
                   <Link
@@ -128,13 +127,56 @@ function Board({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+// Reads the current path. Rendered inside <Suspense> in the layout, with SidebarFallback shown meanwhile.
 export function Sidebar() {
+  return <SidebarView pathname={usePathname()} />;
+}
+
+// The same board with nothing marked as the current page, so it doesn't flash while the path is read.
+export function SidebarFallback() {
+  return <SidebarView pathname={null} />;
+}
+
+function SidebarView({ pathname }: { pathname: string | null }) {
   const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // When the menu opens, move keyboard focus into it.
+  useEffect(() => {
+    if (open) panelRef.current?.querySelector<HTMLElement>("a[href]")?.focus();
+  }, [open]);
+
+  function close(returnFocus: boolean) {
+    setOpen(false);
+    if (returnFocus) menuRef.current?.focus();
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close(true);
+      return;
+    }
+    // Keep Tab inside the open menu.
+    if (event.key !== "Tab") return;
+    const items = Array.from(panelRef.current?.querySelectorAll<HTMLElement>("a[href], button:not(:disabled)") ?? []);
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !panelRef.current?.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !panelRef.current?.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   return (
     <>
       <aside className="sticky top-0 hidden h-screen w-72 shrink-0 md:block">
-        <Board />
+        <Board pathname={pathname} />
       </aside>
 
       {/* Small screens: a top bar that opens the same board. */}
@@ -143,6 +185,7 @@ export function Sidebar() {
           LeadSprint
         </span>
         <button
+          ref={menuRef}
           type="button"
           onClick={() => setOpen(true)}
           className="rounded-[4px] px-3 py-1.5 text-[14px] hover:bg-board-hi"
@@ -153,10 +196,25 @@ export function Sidebar() {
         </button>
       </div>
       {open && (
-        <div id="mobile-board" className="fixed inset-0 z-30 md:hidden" role="dialog" aria-modal="true" aria-label="Sections">
-          <button type="button" aria-label="Close menu" className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <div className="relative h-full w-[85%] max-w-80">
-            <Board onNavigate={() => setOpen(false)} />
+        <div
+          id="mobile-board"
+          className="fixed inset-0 z-30 md:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sections"
+          onKeyDown={onKeyDown}
+        >
+          {/* Tapping outside closes the menu; keyboard users have Escape and the Close button. */}
+          <div aria-hidden className="absolute inset-0 bg-black/40" onClick={() => close(false)} />
+          <div ref={panelRef} className="relative h-full w-[85%] max-w-80">
+            <Board pathname={pathname} onNavigate={() => close(false)} />
+            <button
+              type="button"
+              onClick={() => close(true)}
+              className="absolute right-3 top-6 rounded-[4px] px-2.5 py-1 text-[14px] text-board-ink hover:bg-board-hi"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

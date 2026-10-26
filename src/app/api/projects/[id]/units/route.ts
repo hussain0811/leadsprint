@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { crossSiteError, jsonError, parseBody } from "@/lib/http";
 import { getOrg } from "@/lib/org";
 import { PROJECT_NOT_FOUND, unitSchema } from "@/lib/projects/inputs";
-import { findProject, unitView } from "@/lib/projects/queries";
+import { findProject, findUnitNoClash, unitView } from "@/lib/projects/queries";
 
 export async function POST(req: Request, ctx: RouteContext<"/api/projects/[id]/units">) {
   const blocked = crossSiteError(req);
@@ -13,6 +13,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/projects/[id]/u
 
   const org = await getOrg();
   if (!(await findProject(org.id, id))) return jsonError(PROJECT_NOT_FOUND, 404);
+  const clash = await findUnitNoClash(org.id, id, body.data.unitNo);
+  if (clash) return jsonError(`Unit ${clash.unitNo} is already in this project. Edit it in the list instead.`, 409);
   try {
     const unit = await prisma.unit.create({ data: { ...body.data, orgId: org.id, projectId: id } });
     return Response.json({ unit: unitView(unit) }, { status: 201 });

@@ -171,6 +171,9 @@ const TEXT = {
   booked: loc("Great, you're down for {time}. The team will confirm it with you.", "تمام، سجلنا لك موعد {time}. الفريق بيأكد لك الموعد."),
   callBack: loc("Sure, someone from our team will call you.", "أكيد، أحد من فريقنا بيتصل فيك."),
   callNote: "Asked for a call instead of a viewing",
+  slotTaken: loc("Sorry, that time was just taken. Here are the times still free:", "المعذرة، هذا الموعد انحجز توه. هذي المواعيد اللي باقية:"),
+  bookCall: loc("Would you like to book a call with our team? Pick a time that suits you.", "تحب تحجز مكالمة مع فريقنا؟ اختر الوقت اللي يناسبك."),
+  followUp: loc("Thanks! A colleague will follow up with you shortly.", "شكرًا لك! أحد من زملائنا بيتواصل معك قريب."),
 };
 
 /* ---------- Validation ---------- */
@@ -235,6 +238,7 @@ export function validateFlow(def: unknown): string[] {
     const id = typeof raw.id === "string" ? raw.id.trim() : "";
     const name = id ? `Step "${id}"` : label;
     if (!id) problems.push(`${label} needs an id.`);
+    else if (id !== raw.id) problems.push(`${name} has spaces before or after its id.`);
     else if (id === FLOW_END) problems.push(`${label} can't use the id "${FLOW_END}"; it means the end of the flow.`);
     else if (ids.has(id)) problems.push(`${name} is used twice.`);
     ids.add(id);
@@ -277,6 +281,7 @@ export function validateFlow(def: unknown): string[] {
       }
       const oid = typeof opt.id === "string" ? opt.id.trim() : "";
       if (!oid) problems.push(`${oname} needs an id.`);
+      else if (oid !== opt.id) problems.push(`${oname} has spaces before or after its id.`);
       else if (optionIds.has(oid)) problems.push(`${oname} repeats the id "${oid}".`);
       else if (field === "booking" && oid.startsWith("slot:")) problems.push(`${oname} can't use an id starting with "slot:".`);
       optionIds.add(oid);
@@ -343,6 +348,7 @@ export type FlowContext = {
   orgName: string;
   projectName: string | null;
   slots: Array<{ id: string; startsAt: string; kind: string }>; // next free slots, soonest first
+  hasBooking?: boolean; // the lead already has a booking: the booking step is skipped
 };
 
 type Choice = { id: string; title: string; titles: string[]; description?: string; value: string | number | null; next?: string; slotId?: string };
@@ -389,8 +395,10 @@ function choicesFor(step: FlowStep, lang: Lang, ctx: FlowContext): Choice[] {
 }
 
 function stepMessage(step: FlowStep, lang: Lang, ctx: FlowContext): OutgoingMessage {
-  const body = clip(fill(pick(step.ask, lang), ctx, lang), WA_LIMITS.body);
   const choices = choicesFor(step, lang, ctx);
+  const slotChoices = choices.filter((c) => c.slotId);
+  const onlyCalls = step.field === "booking" && slotChoices.length > 0 && slotChoices.every((c) => ctx.slots.find((s) => s.id === c.slotId)?.kind === "call");
+  const body = clip(fill(pick(onlyCalls ? TEXT.bookCall : step.ask, lang), ctx, lang), WA_LIMITS.body);
   if (choices.length === 0) return { kind: "text", body };
   if (step.style === "buttons" && choices.length <= WA_LIMITS.buttons) {
     return { kind: "buttons", body, buttons: choices.map((c) => ({ id: c.id, title: clip(c.title, WA_LIMITS.buttonTitle) })) };
@@ -621,7 +629,8 @@ function knownAnswer(step: FlowStep, q: Qualification): { known: boolean; next?:
   return { known: true, next: step.options.find((o) => o.value === v)?.next };
 }
 
-function resolveStep(def: FlowDefinition, id: string | undefined, q: Qualification, ctx: FlowContext): FlowStep | null {
+// `resume`: picking up again after the flow stopped, so the language is already settled.
+function resolveStep(def: FlowDefinition, id: string | undefined, q: Qualification, ctx: FlowContext, resume = false): FlowStep | null {
   const seen = new Set<string>();
   let cur = id;
   while (cur && cur !== FLOW_END && !seen.has(cur)) {
@@ -629,9 +638,10 @@ function resolveStep(def: FlowDefinition, id: string | undefined, q: Qualificati
     const step = def.steps.find((s) => s.id === cur);
     if (!step) return null;
     const skipWhen = step.when && q[step.when.field] !== step.when.equals;
-    const skipBooking = step.field === "booking" && ctx.slots.length === 0;
+    const skipBooking = step.field === "booking" && (ctx.slots.length === 0 || ctx.hasBooking === true || (q.notes ?? "").includes(TEXT.callNote));
+    const skipLanguage = resume && step.field === "language";
     const known = knownAnswer(step, q);
-    if (!skipWhen && !skipBooking && !known.known) return step;
+    if (!skipWhen && !skipBooking && !skipLanguage && !known.known) return step;
     cur = known.known ? known.next ?? step.next : step.next;
   }
   return null;
@@ -667,11 +677,22 @@ export function startFlow(def: FlowDefinition, lang: Lang, ctx: FlowContext): Fl
 /** Applies the lead's answer (tap or typed text) and asks the next question. */
 export function advanceFlow(def: FlowDefinition, state: FlowState, input: InboundInput, ctx: FlowContext): FlowResult {
   let lang = state.lang;
-  if (!state.stepId) return { state, messages: [], patch: {}, booking: null, handoff: false };
+  if (!state.stepId) {
+    // Stopped earlier (finished, handed off, or the AI was answering): ask the next unanswered question.
+    // This message isn't taken as its answer.
+    const resumeAt = resolveStep(def, def.start, ctx.qualification, ctx, true);
+    if (resumeAt) return { state: { stepId: resumeAt.id, lang, retries: 0 }, messages: [stepMessage(resumeAt, lang, ctx)], patch: {}, booking: null, handoff: false };
+    return { state: { stepId: null, lang, retries: 0 }, messages: [{ kind: "text", body: pick(TEXT.followUp, lang) }], patch: {}, booking: null, handoff: true };
+  }
   const step = def.steps.find((s) => s.id === state.stepId);
   if (!step) return handoffResult(def, lang, ctx);
 
   const choices = choicesFor(step, lang, ctx);
+
+  // A tap on a time that has gone since the list was sent: offer the current list, no retry counted.
+  if (step.field === "booking" && input.replyId?.startsWith("slot:") && !choices.some((c) => c.id === input.replyId)) {
+    return { state, messages: [{ kind: "text", body: pick(TEXT.slotTaken, lang) }, stepMessage(step, lang, ctx)], patch: {}, booking: null, handoff: false };
+  }
   const choice = matchChoice(step, choices, input);
   const patch: Partial<Qualification> = {};
   const messages: OutgoingMessage[] = [];

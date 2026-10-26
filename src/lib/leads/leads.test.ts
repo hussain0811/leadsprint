@@ -44,7 +44,7 @@ test("sorting by score puts hot first, then newest within a score", () => {
 });
 
 test("key answers read as one plain line", () => {
-  assert.equal(keyAnswers({ intent: "buy", budgetMin: 1_000_000, budgetMax: 2_000_000, bedrooms: 2, timeline: "1-3m" }), "Buy · AED 1M to AED 2M · 2 bedrooms · In 1 to 3 months");
+  assert.equal(keyAnswers({ intent: "buy", budgetMin: 1_000_000, budgetMax: 2_000_000, bedrooms: 2, timeline: "1-3m" }), "Buy · AED 1M–2M · 2 bedrooms · In 1 to 3 months");
   assert.equal(keyAnswers({ intent: "rent", budgetMax: 120_000, bedrooms: 0 }), "Rent · Up to AED 120K a year · Studio");
   assert.equal(keyAnswers({ bedrooms: 5, timeline: "now" }), "5+ bedrooms · This month");
   assert.equal(keyAnswers({}), "");
@@ -63,7 +63,10 @@ test("CSV cells are quoted when needed and can't carry formulas", () => {
   assert.equal(csvCell('Say "hi", ok'), '"Say ""hi"", ok"');
   assert.equal(csvCell("line\nbreak"), '"line\nbreak"');
   assert.equal(csvCell("=HYPERLINK(\"x\")"), `"'=HYPERLINK(""x"")"`);
-  assert.equal(csvCell("+971 50 123 4567"), "'+971 50 123 4567");
+  assert.equal(csvCell("+971 50 123 4567"), "+971 50 123 4567");
+  assert.equal(csvCell("+971 (50) 123-4567"), "+971 (50) 123-4567");
+  assert.equal(csvCell("+cmd|' /C calc'!A0"), "'+cmd|' /C calc'!A0");
+  assert.equal(csvCell("-2+3+cmd"), "'-2+3+cmd");
   assert.equal(csvCell("@cmd"), "'@cmd");
   assert.equal(csvCell(null), "");
   assert.equal(csvCell(-5), "-5");

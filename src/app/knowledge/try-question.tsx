@@ -51,7 +51,7 @@ export function TryQuestion({ projects, aiReady }: { projects: ProjectOption[]; 
     setTried(null);
     setNotice({
       tone: "muted",
-      text: askAi ? "Searching, then asking the AI. A model on this computer can take a while." : "Searching your documents and questions.",
+      text: askAi ? "Searching, then asking the AI. An AI model on this computer can take a while." : "Searching your documents and questions.",
     });
     try {
       const response = await apiFetch<TryQuestionResponse>("/api/knowledge/try", {
@@ -126,7 +126,7 @@ export function TryQuestion({ projects, aiReady }: { projects: ProjectOption[]; 
 
 function Results({ tried }: { tried: Tried }) {
   const { query, askedAi, response } = tried;
-  const { passages, mode, embeddingModel } = response.result;
+  const { passages, mode } = response.result;
 
   return (
     <div className="mt-4 grid gap-8">
@@ -158,7 +158,7 @@ function Results({ tried }: { tried: Tried }) {
         <h3 className="text-[15px] font-semibold">Passages found</h3>
         <p className="text-[13px] text-muted">
           {mode === "hybrid"
-            ? `With meaning and keyword search${embeddingModel ? `, using ${embeddingModel}` : ""}.`
+            ? "With meaning and keyword search."
             : "With keyword search."}
         </p>
         {passages.length === 0 ? (

@@ -62,6 +62,7 @@ export type LeadListResponse = {
 export type ConversationLink = {
   id: string;
   channel: string;
+  forceScripted: boolean;
   needsHuman: boolean;
   humanTakeover: boolean;
   messageCount: number;
@@ -88,6 +89,9 @@ export type LeadDetail = {
   blocked: boolean;
   tokensUsed: number;
   needsPerson: boolean;
+  // Who answers the lead's next message, by the Inbox's rule (newest conversation); null = no conversation yet.
+  answering: "ai" | "scripted" | "person" | null;
+  answeringWhy: string | null; // plain reason when the scripted flow answers instead of the AI
   createdAt: string;
   lastActivityAt: string;
   bookings: BookingView[];

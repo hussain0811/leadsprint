@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { Button, Field, Input, NoticeLine, Section, Select, StatusMark, TextButton, type Notice } from "@/components/ui";
 import { apiFetch } from "@/lib/api-client";
@@ -24,6 +24,20 @@ const NUMBER = new Intl.NumberFormat("en-US");
 
 type Busy = null | "save" | "handoff" | "close" | "delete" | `booking:${string}`;
 
+function safeDecode(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function LeadDetailRoute() {
+  const params = useParams<{ id: string }>();
+  const id = typeof params.id === "string" ? safeDecode(params.id) : "";
+  return <LeadDetailClient key={id} id={id} />;
+}
+
 export function LeadDetailClient({ id }: { id: string }) {
   const router = useRouter();
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -33,6 +47,8 @@ export function LeadDetailClient({ id }: { id: string }) {
   const [statusNotice, setStatusNotice] = useState<Notice>(null);
   // Kept here because a save remounts the edit form with the saved values.
   const [editNotice, setEditNotice] = useState<Notice>(null);
+  // Set just before a save remounts the edit form, so the new form takes keyboard focus back.
+  const refocusEdit = useRef(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -145,22 +161,16 @@ export function LeadDetailClient({ id }: { id: string }) {
       <Section title="Conversation" intro="How the chat went, and where to read or answer it.">
         <dl className="grid gap-x-6 gap-y-2.5 text-[15px] sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
           <dt className="text-muted">Needs a person</dt>
-          <dd>{lead.needsPerson ? <StatusMark tone="warn">Yes, the bot asked for help</StatusMark> : "No"}</dd>
+          <dd>{lead.needsPerson ? <StatusMark tone="warn">Needs a person</StatusMark> : "No"}</dd>
           <dt className="text-muted">Strikes</dt>
           <dd className="tabular-nums">
             {lead.strikes}
             {strikeLimit !== null && ` of ${strikeLimit}`}
             <span className="text-muted"> (for abuse or repeated off-topic messages)</span>
           </dd>
-          <dt className="text-muted">AI</dt>
+          <dt className="text-muted">Who answers</dt>
           <dd>
-            {lead.blocked ? (
-              <StatusMark tone="bad">Blocked: the bot no longer replies</StatusMark>
-            ) : lead.aiStopped ? (
-              <StatusMark tone="warn">Stopped for this lead; the scripted flow answers</StatusMark>
-            ) : (
-              <StatusMark tone="ok">Answering</StatusMark>
-            )}
+            <Answering lead={lead} />
           </dd>
           <dt className="text-muted">AI tokens used</dt>
           <dd className="tabular-nums">{NUMBER.format(lead.tokensUsed)}</dd>
@@ -189,7 +199,7 @@ export function LeadDetailClient({ id }: { id: string }) {
 
       <Bookings lead={lead} busy={busy} run={run} onChanged={setLead} />
 
-      <EditLead key={`${lead.id}:${lead.name}:${lead.phone}:${lead.email}:${lead.status}`} lead={lead} busy={busy} run={run} onSaved={setLead} notice={editNotice} onNotice={setEditNotice} />
+      <EditLead key={`${lead.id}:${lead.name}:${lead.phone}:${lead.email}:${lead.status}`} lead={lead} busy={busy} run={run} onSaved={setLead} notice={editNotice} onNotice={setEditNotice} refocusRef={refocusEdit} />
 
       <Section title="Next step" intro="Mark what happened with this lead. You can change the status again at any time above.">
         <div className="flex flex-wrap gap-3">
@@ -210,6 +220,20 @@ export function LeadDetailClient({ id }: { id: string }) {
       <DeleteLead lead={lead} busy={busy} run={run} onDeleted={() => router.push("/leads")} />
     </div>
   );
+}
+
+// Same rule as the Inbox: a person who took over, else the scripted flow when the AI can't answer, else the AI.
+function Answering({ lead }: { lead: LeadDetail }) {
+  if (lead.blocked) return <StatusMark tone="bad">Blocked: the bot no longer replies</StatusMark>;
+  if (lead.answering === "person") return <StatusMark tone="warn">A person is answering</StatusMark>;
+  if (lead.answering === "scripted")
+    return (
+      <StatusMark tone="muted">
+        The scripted flow is answering{lead.answeringWhy && <span className="text-muted"> ({lead.answeringWhy})</span>}
+      </StatusMark>
+    );
+  if (lead.answering === "ai") return <StatusMark tone="ok">The AI is answering</StatusMark>;
+  return <span className="text-muted">No conversation yet</span>;
 }
 
 function Overview({ lead }: { lead: LeadDetail }) {
@@ -320,6 +344,7 @@ function EditLead({
   onSaved,
   notice,
   onNotice: setNotice,
+  refocusRef,
 }: {
   lead: LeadDetail;
   busy: Busy;
@@ -327,7 +352,14 @@ function EditLead({
   onSaved: (lead: LeadDetail) => void;
   notice: Notice;
   onNotice: (notice: Notice) => void;
+  refocusRef: RefObject<boolean>;
 }) {
+  const statusRef = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    if (!refocusRef.current) return;
+    refocusRef.current = false;
+    statusRef.current?.focus();
+  }, [refocusRef]);
   const uid = useId();
   const [name, setName] = useState(lead.name ?? "");
   const [phone, setPhone] = useState(lead.phone ?? "");
@@ -347,6 +379,7 @@ function EditLead({
           json: { name: name.trim(), phone: phone.trim(), email: email.trim(), status },
         });
         setNotice({ tone: "ok", text: "Saved." });
+        refocusRef.current = true;
         onSaved(res.lead); // remounts this form with the saved values
       },
       (text) => setNotice({ tone: "bad", text }),
@@ -377,7 +410,7 @@ function EditLead({
           </Field>
         </div>
         <Field label="Status" htmlFor={`${uid}-status`}>
-          <Select id={`${uid}-status`} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <Select ref={statusRef} id={`${uid}-status`} value={status} onChange={(e) => setStatus(e.target.value)}>
             {LEAD_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}

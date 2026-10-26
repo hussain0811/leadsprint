@@ -2,7 +2,20 @@ import { toWesternDigits } from "./guard";
 import { DEFAULT_SETTINGS, WA_LIMITS } from "./types";
 import type { OrgSettings } from "./types";
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+type NumericSetting = "maxMessageChars" | "leadMessagesPerMinute" | "strikeLimit" | "offTopicStreakForStrike" | "leadTokenBudget" | "monthlyTokenBudget" | "maxReplyChars";
+
+/** Allowed range per number setting. readSettings clamps stored values; PUT /api/settings refuses values outside. */
+export const SETTINGS_LIMITS: Record<NumericSetting, { min: number; max: number }> = {
+  maxMessageChars: { min: 50, max: 4000 },
+  leadMessagesPerMinute: { min: 1, max: 60 },
+  strikeLimit: { min: 1, max: 20 },
+  offTopicStreakForStrike: { min: 1, max: 50 },
+  leadTokenBudget: { min: 1_000, max: 10_000_000 },
+  monthlyTokenBudget: { min: 10_000, max: 1_000_000_000 },
+  maxReplyChars: { min: 100, max: WA_LIMITS.body },
+};
+
+const isRecord =(v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 function int(v: unknown, fallback: number, min: number, max: number): number {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
@@ -60,15 +73,16 @@ export function readSettings(json: string | null | undefined): OrgSettings {
   }
   const o = isRecord(parsed) ? parsed : {};
   const d = DEFAULT_SETTINGS;
+  const num = (key: NumericSetting) => int(o[key], d[key], SETTINGS_LIMITS[key].min, SETTINGS_LIMITS[key].max);
   return {
-    maxMessageChars: int(o.maxMessageChars, d.maxMessageChars, 50, 4000),
-    leadMessagesPerMinute: int(o.leadMessagesPerMinute, d.leadMessagesPerMinute, 1, 60),
-    strikeLimit: int(o.strikeLimit, d.strikeLimit, 1, 20),
-    offTopicStreakForStrike: int(o.offTopicStreakForStrike, d.offTopicStreakForStrike, 1, 50),
-    leadTokenBudget: int(o.leadTokenBudget, d.leadTokenBudget, 1_000, 10_000_000),
-    monthlyTokenBudget: int(o.monthlyTokenBudget, d.monthlyTokenBudget, 10_000, 1_000_000_000),
+    maxMessageChars: num("maxMessageChars"),
+    leadMessagesPerMinute: num("leadMessagesPerMinute"),
+    strikeLimit: num("strikeLimit"),
+    offTopicStreakForStrike: num("offTopicStreakForStrike"),
+    leadTokenBudget: num("leadTokenBudget"),
+    monthlyTokenBudget: num("monthlyTokenBudget"),
     scopeCheck: typeof o.scopeCheck === "boolean" ? o.scopeCheck : d.scopeCheck,
-    maxReplyChars: int(o.maxReplyChars, d.maxReplyChars, 100, WA_LIMITS.body),
+    maxReplyChars: num("maxReplyChars"),
     allowedLinkDomains: domains(o.allowedLinkDomains),
     allowedPhones: phones(o.allowedPhones),
   };

@@ -254,19 +254,22 @@ function FlowEditor({ saved, onSaved }: { saved: FlowDefinition; onSaved: (defin
 
 /* ---------- Readable preview ---------- */
 
+// The step id that means "the flow ends" (FLOW_END in src/lib/chat/flow.ts, which is server code).
+const FLOW_END = "done";
+
 const FIELD_TEXT: Record<string, string> = {
-  intent: "what they want (buy, rent or browse)",
-  purpose: "purpose (live or invest)",
-  budgetMin: "budget from",
-  budgetMax: "budget up to",
-  propertyType: "property type",
-  bedrooms: "bedrooms",
-  payment: "payment (cash or mortgage)",
-  timeline: "timeline",
-  area: "area",
-  notes: "notes",
-  language: "language",
-  booking: "a booking",
+  intent: "whether they want to buy or rent",
+  purpose: "whether it's to live in or invest",
+  budgetMin: "their budget",
+  budgetMax: "their budget",
+  propertyType: "the property type",
+  bedrooms: "the number of bedrooms",
+  payment: "cash or mortgage",
+  timeline: "when they want to move",
+  area: "the area",
+  notes: "a note",
+  language: "their language",
+  booking: "a viewing or call",
 };
 
 const STYLE_TEXT: Record<FlowStep["style"], string> = {
@@ -275,14 +278,37 @@ const STYLE_TEXT: Record<FlowStep["style"], string> = {
   text: "Typed answer",
 };
 
+// Texts may use {org} and {project}; the bot fills them in. Show them as plain words here.
+const PLACEHOLDERS: Record<"en" | "ar", Record<string, string>> = {
+  en: { "{org}": "your company name", "{project}": "the project name" },
+  ar: { "{org}": "اسم شركتك", "{project}": "اسم المشروع" },
+};
+
+function Filled({ text, lang }: { text: string; lang: "en" | "ar" }) {
+  const parts = text.split(/(\{org\}|\{project\})/);
+  return (
+    <>
+      {parts.map((part, i) =>
+        PLACEHOLDERS[lang][part] ? (
+          <span key={i} className="rounded-[3px] bg-brass/15 px-1 text-brass">
+            {PLACEHOLDERS[lang][part]}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 function Bilingual({ text }: { text: Localized }) {
   return (
     <div className="grid gap-2 sm:grid-cols-2 sm:gap-6">
       <p className="whitespace-pre-wrap text-[14px] leading-relaxed" lang="en">
-        {text.en || <span className="text-muted">No English text</span>}
+        {text.en ? <Filled text={text.en} lang="en" /> : <span className="text-muted">No English text</span>}
       </p>
       <p className="whitespace-pre-wrap text-[15px] leading-relaxed" lang="ar" dir="rtl">
-        {text.ar || <span className="text-muted">لا يوجد نص عربي</span>}
+        {text.ar ? <Filled text={text.ar} lang="ar" /> : <span className="text-muted">لا يوجد نص عربي</span>}
       </p>
     </div>
   );
@@ -297,15 +323,36 @@ function Message({ label, text }: { label: string; text: Localized }) {
   );
 }
 
-function stepName(flow: FlowDefinition, id: string | undefined): ReactNode {
-  if (!id) return "the flow ends";
+function shortQuestion(step: FlowStep) {
+  const text = step.ask.en.replace(/\{org\}/g, "your company").replace(/\{project\}/g, "the project").trim();
+  return text.length > 60 ? `${text.slice(0, 57).trimEnd()}…` : text;
+}
+
+// Where an answer leads, in plain words: "the next question", a named question, or the end of the flow.
+function whereTo(flow: FlowDefinition, from: FlowStep, id: string | undefined): ReactNode {
+  if (!id || id === FLOW_END) return "the flow ends";
   const index = flow.steps.findIndex((s) => s.id === id);
-  if (index === -1) return <span className="text-bad">“{id}”, which doesn&apos;t exist</span>;
+  if (index === -1) return <span className="text-bad">a question that doesn&apos;t exist (“{id}”)</span>;
+  const label = flow.steps[flow.steps.indexOf(from) + 1]?.id === id ? "the next question" : `“${shortQuestion(flow.steps[index])}”`;
   return (
     <a href={`#step-${encodeURIComponent(id)}`} className="text-marina underline underline-offset-2">
-      step {index + 1} ({id})
+      {label}
     </a>
   );
+}
+
+// "Only for buyers: renters and people just browsing skip it."
+function whenText(flow: FlowDefinition, when: NonNullable<FlowStep["when"]>) {
+  if (when.field === "intent") {
+    if (when.equals === "buy") return "Only for buyers: renters and people just browsing skip it.";
+    if (when.equals === "rent") return "Only for renters: buyers and people just browsing skip it.";
+  }
+  const source = flow.steps.find((s) => s.field === when.field);
+  const option = source?.options.find((o) => o.value === when.equals);
+  const answer = option ? option.title.en : String(when.equals);
+  return source
+    ? `Only asked if the lead answered “${answer}” to “${shortQuestion(source)}”; everyone else skips it.`
+    : `Only asked when ${FIELD_TEXT[when.field] ?? when.field} is “${answer}”; everyone else skips it.`;
 }
 
 function OptionTitle({ text, limit }: { text: string; limit: number | null }) {
@@ -326,7 +373,7 @@ function FlowPreview({ flow }: { flow: FlowDefinition }) {
         {flow.steps.map((step, i) => (
           <StepPreview key={`${step.id}-${i}`} flow={flow} step={step} number={i + 1} />
         ))}
-        {flow.steps.length === 0 && <li className="py-4 text-[14px] text-muted">No steps yet.</li>}
+        {flow.steps.length === 0 && <li className="py-4 text-[14px] text-muted">No questions yet.</li>}
       </ol>
       <Message label="When the flow is done" text={flow.done} />
       <Message label="When the bot passes the lead to a person" text={flow.handoff} />
@@ -342,20 +389,15 @@ function StepPreview({ flow, step, number }: { flow: FlowDefinition; step: FlowS
   return (
     <li id={`step-${encodeURIComponent(step.id)}`} className="scroll-mt-6 py-5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h3 className="text-[15px] font-semibold">
-          Step {number} <span className="font-mono text-[13px] font-normal text-muted">{step.id}</span>
-        </h3>
-        {flow.start === step.id && <span className="text-[13px] font-medium text-brass">First question</span>}
+        <h3 className="text-[15px] font-semibold">Question {number}</h3>
+        {flow.start === step.id && <span className="text-[13px] font-medium text-brass">Asked first</span>}
+        <span className="ml-auto font-mono text-[12px] text-muted" title="This question's id in the JSON below">
+          id: {step.id}
+        </span>
       </div>
       <p className="mt-1 text-[13px] leading-relaxed text-muted">
         {STYLE_TEXT[step.style] ?? step.style}. {field ? `Saves ${field}.` : "Doesn't save an answer."}
-        {step.when && (
-          <>
-            {" "}
-            Only asked when {FIELD_TEXT[step.when.field] ?? step.when.field} is “{String(step.when.equals)}”.
-          </>
-        )}{" "}
-        Then {stepName(flow, step.next)}.
+        {step.when && <> {whenText(flow, step.when)}</>} Then {whereTo(flow, step, step.next)}.
       </p>
 
       <div className="mt-3">
@@ -365,7 +407,7 @@ function StepPreview({ flow, step, number }: { flow: FlowDefinition; step: FlowS
       {step.options.length > 0 && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full border-collapse text-left text-[14px]">
-            <caption className="sr-only">Options for step {number}</caption>
+            <caption className="sr-only">Options for question {number}</caption>
             <thead>
               <tr className="border-b border-line text-[13px] text-muted">
                 <th scope="col" className="py-1.5 pr-3 font-medium">
@@ -378,7 +420,7 @@ function StepPreview({ flow, step, number }: { flow: FlowDefinition; step: FlowS
                   Saves
                 </th>
                 <th scope="col" className="py-1.5 font-medium">
-                  Goes to
+                  Then
                 </th>
               </tr>
             </thead>
@@ -392,7 +434,7 @@ function StepPreview({ flow, step, number }: { flow: FlowDefinition; step: FlowS
                     <OptionTitle text={option.title.ar} limit={limit} />
                   </td>
                   <td className="py-1.5 pr-3 font-mono text-[13px]">{option.value === null ? "nothing" : String(option.value)}</td>
-                  <td className="py-1.5 text-[13px]">{option.next ? stepName(flow, option.next) : <span className="text-muted">Step default</span>}</td>
+                  <td className="py-1.5 text-[13px]">{whereTo(flow, step, option.next ?? step.next)}</td>
                 </tr>
               ))}
             </tbody>

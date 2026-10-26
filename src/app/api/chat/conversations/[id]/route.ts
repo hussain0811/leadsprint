@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { z } from "zod";
+import { readFlowState } from "@/lib/chat/pipeline";
 import { getConversationView } from "@/lib/chat/views";
 import { prisma } from "@/lib/db";
 import { crossSiteError, jsonError, parseBody } from "@/lib/http";
@@ -28,8 +29,16 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/chat/conversat
   if (!body.ok) return body.response;
 
   const org = await getOrg();
-  const { count } = await prisma.conversation.updateMany({ where: { id, orgId: org.id }, data: body.data });
-  if (!count) return jsonError(NOT_FOUND, 404);
+  const conv = await prisma.conversation.findFirst({ where: { id, orgId: org.id }, select: { humanTakeover: true, flowState: true } });
+  if (!conv) return jsonError(NOT_FOUND, 404);
+
+  // Handing back to the bot: the flow picks up at the next unanswered question, not where it left off.
+  const handBack = body.data.humanTakeover === false && conv.humanTakeover;
+  const state = handBack ? readFlowState(conv.flowState) : null;
+  await prisma.conversation.updateMany({
+    where: { id, orgId: org.id },
+    data: { ...body.data, ...(handBack ? { flowState: JSON.stringify({ stepId: null, lang: state?.lang ?? "en", retries: 0 }) } : {}) },
+  });
   return Response.json(await getConversationView(org.id, id));
 }
 

@@ -8,7 +8,7 @@ export const SCORE_LABEL: Record<Score, [Tone, string]> = {
   hot: ["ok", "Hot"],
   warm: ["warn", "Warm"],
   cold: ["muted", "Cold"],
-  unknown: ["muted", "Not scored"],
+  unknown: ["muted", "No score yet"],
 };
 
 export const ANSWERING_LABEL: Record<Answering, string> = {

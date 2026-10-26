@@ -1,24 +1,29 @@
 import { connection } from "next/server";
 import { z } from "zod";
-import { readSettings } from "@/lib/chat/settings";
+import { readSettings, SETTINGS_LIMITS } from "@/lib/chat/settings";
 import { prisma } from "@/lib/db";
 import { crossSiteError, parseBody } from "@/lib/http";
 import { getOrg } from "@/lib/org";
 
-const whole = (what: string) => z.number({ error: `${what} must be a number.` }).int(`${what} must be a whole number.`).min(0, `${what} can't be negative.`);
+// Values outside the allowed range are refused, not quietly changed.
+const whole = (what: string, key: keyof typeof SETTINGS_LIMITS) => {
+  const { min, max } = SETTINGS_LIMITS[key];
+  const range = `${what} must be between ${min.toLocaleString("en")} and ${max.toLocaleString("en")}.`;
+  return z.number({ error: `${what} must be a number.` }).int(`${what} must be a whole number.`).min(min, range).max(max, range);
+};
 const list = z.array(z.string().trim().max(200)).max(50, "Keep each list under 50 entries.");
 
-// Fields left out stay as they are; readSettings fills gaps and clamps values out of range.
+// Fields left out stay as they are; readSettings fills gaps and cleans the lists.
 const schema = z.object({
   settings: z.object({
-    maxMessageChars: whole("The message length limit").optional(),
-    leadMessagesPerMinute: whole("Messages per minute").optional(),
-    strikeLimit: whole("The strike limit").optional(),
-    offTopicStreakForStrike: whole("Off-topic messages per strike").optional(),
-    leadTokenBudget: whole("The lead token budget").optional(),
-    monthlyTokenBudget: whole("The monthly token budget").optional(),
+    maxMessageChars: whole("The message length limit", "maxMessageChars").optional(),
+    leadMessagesPerMinute: whole("Messages per minute", "leadMessagesPerMinute").optional(),
+    strikeLimit: whole("The strike limit", "strikeLimit").optional(),
+    offTopicStreakForStrike: whole("Off-topic messages per strike", "offTopicStreakForStrike").optional(),
+    leadTokenBudget: whole("The lead token budget", "leadTokenBudget").optional(),
+    monthlyTokenBudget: whole("The monthly token budget", "monthlyTokenBudget").optional(),
     scopeCheck: z.boolean().optional(),
-    maxReplyChars: whole("The reply length limit").optional(),
+    maxReplyChars: whole("The reply length limit", "maxReplyChars").optional(),
     allowedLinkDomains: list.optional(),
     allowedPhones: list.optional(),
   }),

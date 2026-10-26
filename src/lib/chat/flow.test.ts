@@ -226,9 +226,46 @@ test("answers the AI already collected are not asked again", () => {
   assert.equal(browsing.state.stepId, null);
 });
 
-test("a finished flow stays quiet; a missing step hands off", () => {
-  const done = advanceFlow(DEFAULT_FLOW, { stepId: null, lang: "en", retries: 0 }, say("hello"), ctxWith());
-  assert.deepEqual(done.messages, []);
+test("a stopped flow resumes at the next unanswered question, without using this message as the answer", () => {
+  const stopped: FlowState = { stepId: null, lang: "ar", retries: 0 };
+  const resumed = advanceFlow(DEFAULT_FLOW, stopped, say("rent"), ctxWith({ intent: "buy", purpose: "live" }));
+  assert.equal(resumed.state.stepId, "budget_buy"); // language skipped, "rent" not taken as an answer
+  assert.deepEqual(resumed.patch, {});
+  assert.equal(resumed.handoff, false);
+  assert.match(resumed.messages[0].body, /ميزانيتك/);
+
+  const full: Qualification = { intent: "rent", budgetMax: 60_000, propertyType: "villa", bedrooms: 2, timeline: "now" };
+  const toBooking = advanceFlow(DEFAULT_FLOW, { ...stopped, lang: "en" }, say("hi"), ctxWith(full));
+  assert.equal(toBooking.state.stepId, "booking");
+
+  for (const ctx of [ctxWith(full, { hasBooking: true }), ctxWith({ ...full, notes: "Asked for a call instead of a viewing" }), ctxWith(full, { slots: [] })]) {
+    const nothing = advanceFlow(DEFAULT_FLOW, { ...stopped, lang: "en" }, say("hi again"), ctx);
+    assert.equal(nothing.handoff, true);
+    assert.equal(nothing.state.stepId, null);
+    assert.match(nothing.messages[0].body, /A colleague will follow up/);
+  }
+});
+
+test("a tapped time that's gone gets the current list, without counting a retry", () => {
+  const ready = play([tap("en"), tap("rent"), tap("r1"), tap("villa"), tap("br1"), tap("now")]);
+  const r = advanceFlow(DEFAULT_FLOW, ready.state, tap("slot:gone"), ctxWith(ready.q, { slots: slots.slice(1) }));
+  assert.equal(r.state.retries, 0);
+  assert.equal(r.state.stepId, "booking");
+  assert.equal(r.booking, null);
+  assert.match(r.messages[0].body, /just taken/);
+  assert.equal(r.messages[1].kind === "list" && r.messages[1].rows[0].id, "slot:s2");
+});
+
+test("when every offered time is a call, the question offers a call", () => {
+  const calls = slots.map((s) => ({ ...s, kind: "call" }));
+  const r = play([tap("en"), tap("rent"), tap("r1"), tap("villa"), tap("br1"), tap("now")], "en", { slots: calls });
+  assert.match(r.last.messages[0].body, /book a call/);
+  assert.doesNotMatch(r.last.messages[0].body, /viewing/);
+  const mixed = play([tap("en"), tap("rent"), tap("r1"), tap("villa"), tap("br1"), tap("now")]);
+  assert.match(mixed.last.messages[0].body, /viewing/);
+});
+
+test("a missing step hands off", () => {
   const missing = advanceFlow(DEFAULT_FLOW, { stepId: "gone", lang: "en", retries: 0 }, say("hello"), ctxWith());
   assert.equal(missing.handoff, true);
 });
@@ -243,6 +280,7 @@ test("validateFlow reports plain problems", () => {
   broken.steps[6].options[0].value = "two";
   broken.steps[9].next = "intent"; // loop
   broken.steps[1].options[2].next = "missing";
+  broken.steps[3].id = " budget_buy ";
   const problems = validateFlow(broken);
   const has = (re: RegExp) => assert.ok(problems.some((p) => re.test(p)), `${re} in ${JSON.stringify(problems, null, 1)}`);
   has(/English greeting must say it's an automated/);
@@ -253,6 +291,7 @@ test("validateFlow reports plain problems", () => {
   has(/bedrooms must be a whole number/);
   has(/loops back/);
   has(/"missing", which doesn't exist/);
+  has(/Step "budget_buy" has spaces before or after its id/);
 });
 
 test("slot titles use Dubai time", () => {

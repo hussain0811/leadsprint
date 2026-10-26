@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { crossSiteError, jsonError, parseBody } from "@/lib/http";
 import { getOrg } from "@/lib/org";
 import { UNIT_NOT_FOUND, unitPatchSchema } from "@/lib/projects/inputs";
-import { getUnitView } from "@/lib/projects/queries";
+import { findUnitNoClash, getUnitView } from "@/lib/projects/queries";
 
 // Fields left out stay as they are.
 export async function PATCH(req: Request, ctx: RouteContext<"/api/projects/[id]/units/[unitId]">) {
@@ -13,6 +13,10 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/projects/[id]/
   if (!body.ok) return body.response;
 
   const org = await getOrg();
+  if (body.data.unitNo !== undefined) {
+    const clash = await findUnitNoClash(org.id, id, body.data.unitNo, unitId);
+    if (clash) return jsonError(`Unit ${clash.unitNo} is already in this project. Use another unit number.`, 409);
+  }
   try {
     const { count } = await prisma.unit.updateMany({ where: { id: unitId, projectId: id, orgId: org.id }, data: body.data });
     if (!count) return jsonError(UNIT_NOT_FOUND, 404);

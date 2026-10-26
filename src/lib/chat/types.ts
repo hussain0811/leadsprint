@@ -21,7 +21,7 @@ export type OrgSettings = {
 
 export const DEFAULT_SETTINGS: OrgSettings = {
   maxMessageChars: 1000,
-  leadMessagesPerMinute: 8,
+  leadMessagesPerMinute: 15,
   strikeLimit: 3,
   offTopicStreakForStrike: 5,
   leadTokenBudget: 60_000,

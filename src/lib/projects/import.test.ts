@@ -14,7 +14,7 @@ import {
   TEMPLATE_CSV,
   type ExistingUnit,
 } from "./import";
-import { readSheets, SheetError, type Sheet } from "./sheet";
+import { MAX_UNZIPPED_BYTES, readSheets, SheetError, zipUncompressedSize, type Sheet } from "./sheet";
 
 const sheet = (rows: string[][]): Sheet => ({ name: null, rows: rows.map((cells, i) => ({ row: i + 1, cells })) });
 
@@ -180,4 +180,21 @@ test("refuses other file types and damaged spreadsheets plainly", async () => {
   await assert.rejects(readSheets(Buffer.from("x"), "prices.xls"), SheetError);
   await assert.rejects(readSheets(Buffer.from(""), "prices.csv"), /empty/);
   await assert.rejects(readSheets(Buffer.from("not a zip"), "prices.xlsx"), /couldn't be read/);
+});
+
+test("reads the declared unpacked size of an .xlsx before opening it", async () => {
+  const workbook = new Workbook();
+  workbook.addWorksheet("Prices").addRow(["Unit", "Price"]);
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+  const size = zipUncompressedSize(buffer);
+  assert.ok(size !== null && size > buffer.length / 2 && size < MAX_UNZIPPED_BYTES);
+  assert.equal(zipUncompressedSize(Buffer.from("not a zip at all, just text")), null);
+
+  // Claim a huge size for the first entry, as a zip bomb would.
+  const bomb = Buffer.from(buffer);
+  const eocd = bomb.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  const central = bomb.readUInt32LE(eocd + 16);
+  bomb.writeUInt32LE(0xfffffff0, central + 24);
+  assert.ok((zipUncompressedSize(bomb) ?? 0) > MAX_UNZIPPED_BYTES);
+  await assert.rejects(readSheets(bomb, "prices.xlsx"), /too large once opened/);
 });

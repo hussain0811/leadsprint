@@ -11,12 +11,15 @@ export function toWesternDigits(text: string): string {
     .replace(/٬/g, ",");
 }
 
+// Zero-width and direction marks (Unicode Cf) that could hide a phrase.
+const FORMAT_CHARS = new RegExp("\\p{Cf}", "gu");
+
 /**
- * Lower-cases, uses Western digits and folds common Arabic spelling variants
+ * Lower-cases, strips zero-width characters, uses Western digits and folds common Arabic spelling variants
  * (hamza forms of alef, taa marbuta, alef maqsura, diacritics, tatweel) so typed answers compare reliably.
  */
 export function normalizeForMatch(text: string): string {
-  return toWesternDigits(text)
+  return toWesternDigits(text.replace(FORMAT_CHARS, ""))
     .toLowerCase()
     .replace(/[ً-ْٰـ]/g, "") // diacritics and tatweel
     .replace(/[أإآٱ]/g, "ا") // أ إ آ ٱ -> ا
@@ -159,18 +162,22 @@ const CODE_PATTERNS = [
 ];
 
 const INJECTION_PATTERNS = [
-  /\b(ignore|disregard|forget|override|bypass)\b.{0,40}\b(instructions?|prompts?|rules|guidelines|system message)\b/,
+  // "ignore all previous instructions", "disregard your rules"; not "forget the rules about service charge".
+  /\b(ignore|disregard|forget|override|bypass)\s+(all\s+|any\s+|of\s+|the\s+|your\s+|these\s+|those\s+)*(previous|prior|above|earlier|preceding|system|original|initial|your)\s+(rules|instructions?|prompts?|guidelines|directions)\b/,
+  /\b(ignore|disregard|forget|override|bypass)\s+(all\s+|any\s+|the\s+|your\s+)*(instructions?|prompts?|system message|programming)\b/,
   /\b(system|developer|hidden)\s+(prompt|message|instructions?)\b/,
-  /\byou\s+are\s+now\b/,
+  // Role-play only: "you are now a pirate", "you are now DAN"; not "you are now my agent?".
+  /\byou\s+are\s+now\s+(a|an|dan|in\s+\w+\s+mode|unrestricted|unfiltered|jailbroken|free\s+from|no\s+longer|playing|pretending|my\s+(new\s+)?(ai|assistant|character|persona|girlfriend|boyfriend))\b/,
   /\bpretend\s+(to\s+be|you\s*('re|are))\b/,
   /\brole[\s-]?play/,
   /\bjail\s?break/,
   /\bdeveloper\s+mode\b/,
   /\bdo\s+anything\s+now\b/,
-  /\bno\s+(restrictions|filters|rules)\b/,
-  // Arabic (normalised): تجاهل/انسى التعليمات، تقمص/العب دور، موجه النظام
-  /(تجاهل|انس|انسي|الغ).{0,30}(التعليمات|الاوامر|القواعد)/,
-  /(تقمص|العب|مثل)\s+دور/,
+  // "answer without restrictions"; not "are there no restrictions on holiday rentals?".
+  /\b(answer|respond|reply|talk|speak|act|chat)\b.{0,20}\b(without|with no)\s+(restrictions|filters|censorship|limits)\b/,
+  // Arabic (normalised): تجاهل/انسى التعليمات أو الأوامر، تقمص/العب دور (not "مثل دور": دور is also a floor), موجه النظام
+  /(^|\s)(تجاهل|انس|انسي|الغي?)\s.{0,30}(التعليمات|الاوامر)/,
+  /(تقمص|العب)\s+دور/,
   /(موجه|تعليمات)\s+النظام/,
 ];
 
@@ -190,14 +197,16 @@ const REPLIES = {
 } satisfies Record<string, Localized | ((n: number) => Localized)>;
 
 /** Checks that cost nothing and run before any AI call: length, rate, obvious misuse patterns, blocked leads. */
-export function freeChecks(text: string, ctx: { settings: OrgSettings; recentInboundAt: Date[]; blocked: boolean; now?: Date }): FreeCheckResult {
+// `tap`: the message is a button or list tap. Taps never hit the rate limit, and callers should
+// leave taps out of `recentInboundAt` too (typed messages only).
+export function freeChecks(text: string, ctx: { settings: OrgSettings; recentInboundAt: Date[]; blocked: boolean; now?: Date; tap?: boolean }): FreeCheckResult {
   const { settings } = ctx;
   if (ctx.blocked) return { ok: false, reason: "blocked", strike: false, reply: null };
 
   // recentInboundAt: the lead's earlier messages; at the limit within the last minute means wait.
   const now = (ctx.now ?? new Date()).getTime();
   const lastMinute = ctx.recentInboundAt.filter((d) => now - d.getTime() < 60_000 && d.getTime() <= now).length;
-  if (lastMinute >= settings.leadMessagesPerMinute) return { ok: false, reason: "rate_limited", strike: false, reply: REPLIES.rate };
+  if (!ctx.tap && lastMinute >= settings.leadMessagesPerMinute) return { ok: false, reason: "rate_limited", strike: false, reply: REPLIES.rate };
 
   // A huge paste (3x the limit) is a strike; an ordinary long message is only asked to be shorter.
   if (text.length > settings.maxMessageChars) {

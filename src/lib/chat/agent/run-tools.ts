@@ -31,10 +31,11 @@ export type TurnState = {
   knowledgeUsed: KnowledgeUsed[];
   toolCalls: TurnTrace["toolCalls"];
   factTexts: string[]; // tool output this turn, for the reply check's known numbers
+  embeddingTokens: number; // tokens spent embedding search questions, when the search reports them
 };
 
 export function newTurnState(): TurnState {
-  return { patch: {}, booking: null, handoff: false, handoffReason: null, documents: [], passages: [], knowledgeUsed: [], toolCalls: [], factTexts: [] };
+  return { patch: {}, booking: null, handoff: false, handoffReason: null, documents: [], passages: [], knowledgeUsed: [], toolCalls: [], factTexts: [], embeddingTokens: 0 };
 }
 
 const dubaiTime = new Intl.DateTimeFormat("en-GB", {
@@ -80,6 +81,7 @@ async function execute(ctx: ToolContext, state: TurnState, call: Call): Promise<
   switch (call.name) {
     case "search_knowledge": {
       const result = await searchKnowledge({ orgId: ctx.orgId, projectId: ctx.projectId, query: call.args.query, limit: MAX_PASSAGES, now: ctx.now });
+      state.embeddingTokens += embeddingUsage(result);
       for (const p of result.passages) {
         if (!state.knowledgeUsed.some((k) => k.id === p.id)) {
           state.knowledgeUsed.push({ id: p.id, sourceId: p.sourceId, origin: p.origin, title: p.title, page: p.page });
@@ -222,4 +224,11 @@ async function execute(ctx: ToolContext, state: TurnState, call: Call): Promise<
       return { ok: true, note: "A colleague will follow up. Tell the lead briefly and politely; don't promise a time." };
     }
   }
+}
+
+// searchKnowledge doesn't report embedding usage yet; count it as soon as it does.
+export function embeddingUsage(result: unknown): number {
+  const usage = (result as { usage?: { total_tokens?: unknown; prompt_tokens?: unknown; tokens?: unknown } } | null)?.usage;
+  const n = usage && (usage.total_tokens ?? usage.prompt_tokens ?? usage.tokens);
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 }

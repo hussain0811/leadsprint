@@ -25,7 +25,24 @@ export function InboxClient() {
   const params = useSearchParams();
   const selectedId = params.get("c") || null;
 
-  const [filters, setFilters] = useState<FilterState>({ needsHuman: false, takeover: false, projectId: "", search: "" });
+  // ?needs=1 (e.g. from the Dashboard) opens the inbox filtered to conversations that need a person.
+  const [filters, setFilters] = useState<FilterState>(() => ({
+    needsHuman: params.get("needs") === "1",
+    takeover: false,
+    projectId: "",
+    search: "",
+  }));
+
+  // The inbox URL for a conversation (or none), keeping the needs filter in it.
+  function inboxUrl(id: string | null, needs = filters.needsHuman) {
+    const base = id ? inboxThreadHref(id) : "/inbox";
+    return needs ? `${base}${id ? "&" : "?"}needs=1` : base;
+  }
+
+  function changeFilters(next: FilterState) {
+    if (next.needsHuman !== filters.needsHuman) window.history.replaceState(null, "", inboxUrl(selectedId, next.needsHuman));
+    setFilters(next);
+  }
   const [search, setSearch] = useState(""); // the search text after typing pauses
   const [data, setData] = useState<InboxResponse | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -47,16 +64,24 @@ export function InboxClient() {
     return () => clearTimeout(timer);
   }, [filters.search]);
 
+  // The filters the list should show now; a response for older filters is dropped when it arrives.
+  const currentQuery = useRef(query);
+  useEffect(() => {
+    currentQuery.current = query;
+  }, [query]);
+
   const loadList = useCallback(
     async (background: boolean) => {
       const started = epoch.current;
       try {
         const next = await apiFetch<InboxResponse>(`/api/inbox${query ? `?${query}` : ""}`);
+        if (currentQuery.current !== query) return;
         if (epoch.current !== started && background) return;
         setData(next);
         setListError(null);
         setRefreshError(false);
       } catch (err) {
+        if (currentQuery.current !== query) return;
         if (background) setRefreshError(true);
         else setListError(errorText(err));
       }
@@ -128,12 +153,12 @@ export function InboxClient() {
       headingRef.current?.focus();
       return;
     }
-    window.history.pushState(null, "", inboxThreadHref(id));
+    window.history.pushState(null, "", inboxUrl(id));
   }
 
   function back() {
     returnFocusTo.current = selectedId;
-    window.history.pushState(null, "", "/inbox");
+    window.history.pushState(null, "", inboxUrl(null));
   }
 
   async function act(kind: Exclude<ThreadBusy, null>, task: () => Promise<ConversationView>, done: string): Promise<boolean> {
@@ -188,7 +213,7 @@ export function InboxClient() {
   }
 
   return (
-    <div className="mt-6 lg:grid lg:h-[calc(100dvh-13rem)] lg:min-h-[34rem] lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-8">
+    <div className="mt-6 lg:grid lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start lg:gap-8">
       <div className={`${selectedId ? "hidden lg:flex" : "flex"} min-h-0 flex-col`}>
         <ConversationList
           data={data}
@@ -196,7 +221,7 @@ export function InboxClient() {
           refreshError={refreshError}
           filters={filters}
           selectedId={selectedId}
-          onFilters={setFilters}
+          onFilters={changeFilters}
           onOpen={open}
           onRetry={() => void loadList(false)}
         />

@@ -11,7 +11,11 @@ const SCORES: Score[] = ["hot", "warm", "cold", "unknown"];
 
 export function inboxWhere(orgId: string, f: InboxFilters): Prisma.ConversationWhereInput {
   const where: Prisma.ConversationWhereInput = { orgId };
-  if (f.needsHuman) where.needsHuman = true;
+  // A taken-over conversation already has a person on it, so it doesn't count as "needs a person".
+  if (f.needsHuman) {
+    where.needsHuman = true;
+    where.humanTakeover = false;
+  }
   if (f.takeover) where.humanTakeover = true;
   if (f.projectId) where.lead = { projectId: f.projectId === "none" ? null : f.projectId };
   if (f.q) {
@@ -36,7 +40,7 @@ export async function listInbox(orgId: string, filters: InboxFilters): Promise<I
       },
     }),
     prisma.project.findMany({ where: { orgId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.conversation.count({ where: { orgId, needsHuman: true } }),
+    prisma.conversation.count({ where: { orgId, needsHuman: true, humanTakeover: false } }),
     prisma.conversation.count({ where: { orgId, humanTakeover: true } }),
     findConnection(orgId, "ai"),
   ]);
@@ -52,7 +56,7 @@ export async function listInbox(orgId: string, filters: InboxFilters): Promise<I
       projectId: c.lead.projectId,
       projectName: c.lead.project?.name ?? null,
       score: SCORES.includes(c.lead.score as Score) ? (c.lead.score as Score) : "unknown",
-      needsHuman: c.needsHuman,
+      needsHuman: c.needsHuman && !c.humanTakeover,
       humanTakeover: c.humanTakeover,
       answering: answeringMode({ humanTakeover: c.humanTakeover, forceScripted: c.forceScripted, aiStopped: c.lead.aiStopped, aiReady }),
       lastMessage: last ? previewText(last.body) : "",

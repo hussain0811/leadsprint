@@ -509,10 +509,10 @@ function StorageSection({
 /* ---------- Coming later ---------- */
 
 const LATER = [
-  { name: "Claude by Anthropic", when: "Next", text: "Claude through Anthropic's own API, with full support for its features." },
-  { name: "WhatsApp", when: "Phase 2", text: "Your own WhatsApp Business account, from Meta directly or through 360dialog." },
-  { name: "SMS", when: "Phase 3", text: "Your own Twilio or Unifonic account." },
-  { name: "Email to leads", when: "Phase 3", text: "Your own SMTP, Resend or SendGrid account." },
+  { name: "Claude by Anthropic", when: "Coming next", text: "Claude through Anthropic's own API, with full support for its features." },
+  { name: "WhatsApp", when: "Coming soon", text: "Your own WhatsApp Business account, from Meta directly or through 360dialog." },
+  { name: "SMS", when: "Later", text: "Your own Twilio or Unifonic account." },
+  { name: "Email to leads", when: "Later", text: "Your own SMTP, Resend or SendGrid account." },
   { name: "Cloud storage bucket", when: "Later", text: "Cloudflare R2, AWS S3, Backblaze B2 or any S3-compatible bucket." },
 ];
 

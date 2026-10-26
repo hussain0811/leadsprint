@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyScope, chooseResponder, HANDOFF_NOTE, mergeQualification, nextStatus, runTurn, type TurnDeps, type TurnFacts } from "./turn";
+import {
+  applyScope,
+  asUnsentNotes,
+  chooseResponder,
+  counterUpdate,
+  dubaiMonthStart,
+  HANDOFF_NOTE,
+  mergeQualification,
+  nextStatus,
+  replyForFailedBooking,
+  runTurn,
+  type TurnDeps,
+  type TurnFacts,
+} from "./turn";
 import { DEFAULT_SETTINGS, type AgentTurnResult, type FlowDefinition, type FlowResult, type FreeCheckResult } from "./types";
 
 const FLOW: FlowDefinition = {
@@ -47,14 +60,17 @@ function agentResult(over: Partial<AgentTurnResult> = {}): AgentTurnResult {
 
 // Fakes that record what was called.
 function fakes(opts: { check?: FreeCheckResult; agent?: AgentTurnResult | Error; flow?: Partial<FlowResult> } = {}) {
-  const calls = { agent: 0, flow: 0, score: 0, recent: [] as Date[][] };
+  const calls = { agent: 0, flow: 0, score: 0, recent: [] as Date[][], taps: [] as Array<boolean | undefined>, flowFrom: [] as Array<string | null>, flowQual: [] as unknown[] };
   const deps: TurnDeps = {
     freeChecks: (_text, ctx) => {
+      calls.taps.push(ctx.tap);
       calls.recent.push(ctx.recentInboundAt);
       return opts.check ?? { ok: true };
     },
-    advanceFlow: (_def, state) => {
+    advanceFlow: (_def, state, _input, ctx) => {
       calls.flow++;
+      calls.flowFrom.push(state.stepId);
+      calls.flowQual.push(ctx.qualification);
       return {
         state: { ...state, stepId: "budget" },
         messages: [{ kind: "buttons", body: "Your budget?", buttons: [{ id: "b1", title: "Under 1M" }] }],
@@ -230,4 +246,109 @@ test("a conversation with no flow position starts at the flow's first step", asy
   };
   await runTurn(facts({ forceScripted: true, flowState: null }), deps);
   assert.equal(seen, "intent");
+});
+
+test("an agent handoff with no reply says the flow's handoff line, flags the conversation and skips the flow", async () => {
+  const { deps, calls } = fakes({ agent: agentResult({ messages: [], handoff: true, patch: { payment: "cash" } }) });
+  const out = await runTurn(facts(), deps);
+  assert.equal(calls.flow, 0);
+  assert.deepEqual(out.messages, [
+    { author: "bot", message: { kind: "text", body: "A person will reply" } },
+    { author: "system", message: { kind: "note", body: HANDOFF_NOTE } },
+  ]);
+  assert.equal(out.needsHuman, true);
+  assert.equal(out.lead.status, "handed_off");
+  assert.equal(out.statusFlags?.handoff, true);
+  assert.deepEqual(out.lead.qualification, { payment: "cash" });
+  assert.equal(out.trace.mode, "ai");
+});
+
+test("a fallback keeps the agent's patch and booking, and resumes the flow from no fixed step", async () => {
+  const { deps, calls } = fakes({ agent: agentResult({ messages: [], error: "timeout", patch: { area: "Marina" }, booking: { slotId: "s9" } }) });
+  const out = await runTurn(facts(), deps);
+  assert.deepEqual(calls.flowFrom, [null]);
+  assert.deepEqual(calls.flowQual[0], { area: "Marina" }); // the flow sees what the AI collected
+  assert.deepEqual(out.lead.qualification, { area: "Marina", intent: "buy" });
+  assert.deepEqual(out.booking, { slotId: "s9" });
+  assert.equal(out.statusFlags?.booked, true);
+  assert.equal(out.lead.status, "qualified");
+});
+
+test("plain scripted turns answer from the saved flow position", async () => {
+  const { deps, calls } = fakes();
+  const out = await runTurn(facts({ forceScripted: true }), deps);
+  assert.deepEqual(calls.flowFrom, ["intent"]);
+  assert.equal(out.flowStateBefore?.stepId, "intent");
+});
+
+test("a lead who finishes the flow only browsing isn't qualified", async () => {
+  assert.equal(nextStatus("qualifying", { handoff: false, finished: true, booked: false, browsing: true }), "qualifying");
+  const { deps } = fakes({ flow: { state: { stepId: null, lang: "en", retries: 0 }, patch: { intent: "browsing" } } });
+  const out = await runTurn(facts({ forceScripted: true }), deps);
+  assert.equal(out.lead.status, "qualifying");
+  assert.equal(out.statusFlags?.browsing, true);
+});
+
+test("taps are flagged to the free checks so they skip the rate limit", async () => {
+  const { deps, calls } = fakes();
+  await runTurn(facts({ input: { replyId: "b1" }, text: "Under 1M" }), deps);
+  await runTurn(facts(), deps);
+  assert.deepEqual(calls.taps, [true, false]);
+});
+
+test("a free-check failure leaves the status alone", async () => {
+  const { deps } = fakes({ check: { ok: false, reason: "too_long", strike: false, reply: null } });
+  assert.equal((await runTurn(facts(), deps)).statusFlags, null);
+});
+
+test("asUnsentNotes turns a reply into admin notes", () => {
+  const notes = asUnsentNotes(
+    [
+      { author: "ai", message: { kind: "text", body: "Hello" } },
+      { author: "system", message: { kind: "note", body: HANDOFF_NOTE } },
+    ],
+    "a person took over",
+  );
+  assert.deepEqual(notes, [{ author: "system", message: { kind: "note", body: "Not sent (a person took over): Hello" } }]);
+});
+
+test("replyForFailedBooking offers the free slots again, or names the existing booking", () => {
+  const reply = [
+    { author: "bot" as const, message: { kind: "text" as const, body: "Booked for Mon 11am" } },
+    { author: "bot" as const, message: { kind: "text" as const, body: "Thanks" } },
+  ];
+  const taken = replyForFailedBooking(reply, { ok: false, reason: "taken" }, "en", [{ id: "s2", title: "Tue 4pm", description: "viewing" }]);
+  assert.equal(taken.length, 1);
+  const msg = taken[0].message;
+  assert.equal(msg.kind, "list");
+  assert.ok(msg.kind === "list" && msg.body.includes("just taken") && msg.rows[0].id === "slot:s2");
+
+  const none = replyForFailedBooking(reply, { ok: false, reason: "taken" }, "en", []);
+  assert.equal(none[0].message.kind, "text");
+
+  const already = replyForFailedBooking(reply, { ok: false, reason: "already_booked", existingAt: "Sun 1 Nov, 11:00 am" }, "en", []);
+  assert.equal(already.length, 2);
+  assert.ok(already[0].message.body.includes("Sun 1 Nov, 11:00 am"));
+  assert.equal(already[1].message.body, "Thanks");
+});
+
+test("counterUpdate writes increments, a reset streak as 0, and only ever turns aiStopped on", () => {
+  const before = { language: "en" as const, qualification: {}, status: "new", strikes: 1, offTopicStreak: 3, aiStopped: false, tokensUsed: 100, blocked: false };
+  assert.deepEqual(counterUpdate(before, { ...before, strikes: 2, offTopicStreak: 0, tokensUsed: 250, aiStopped: true }), {
+    strikes: { increment: 1 },
+    tokensUsed: { increment: 150 },
+    offTopicStreak: 0,
+    aiStopped: true,
+  });
+  assert.deepEqual(counterUpdate(before, { ...before, offTopicStreak: 4 }), {
+    strikes: { increment: 0 },
+    tokensUsed: { increment: 0 },
+    offTopicStreak: { increment: 1 },
+  });
+});
+
+test("dubaiMonthStart uses Dubai's calendar month", () => {
+  // 21:00 UTC on 31 Oct is already 1 Nov in Dubai.
+  assert.equal(dubaiMonthStart(new Date("2026-10-31T21:00:00Z")).toISOString(), "2026-10-31T20:00:00.000Z");
+  assert.equal(dubaiMonthStart(new Date("2026-10-15T12:00:00Z")).toISOString(), "2026-09-30T20:00:00.000Z");
 });

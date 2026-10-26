@@ -261,10 +261,16 @@ function QaRow({
             {meaningSearch && !qa.embedded && " No meaning search yet."}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1">
-            <TextButton ref={editButton} onClick={startEdit} disabled={busy !== null}>
+            <TextButton ref={editButton} aria-label={`Edit “${qa.question}”`} onClick={startEdit} disabled={busy !== null}>
               Edit
             </TextButton>
-            <TextButton ref={deleteButton} tone="bad" onClick={remove} disabled={busy !== null}>
+            <TextButton
+              ref={deleteButton}
+              aria-label={`Delete “${qa.question}”`}
+              tone="bad"
+              onClick={remove}
+              disabled={busy !== null}
+            >
               {busy === "delete" ? "Deleting…" : "Delete"}
             </TextButton>
           </div>

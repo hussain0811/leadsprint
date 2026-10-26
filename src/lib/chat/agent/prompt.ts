@@ -153,21 +153,63 @@ export function dataUpdateNote(section: string): string {
 /** What LeadSprint knows about the lead, sent as a note when it changes. */
 export function leadContextNote(lead: { name: string | null; lang: Lang; qualification: Qualification }): string {
   const known = Object.entries(lead.qualification).filter(([, v]) => v !== undefined && v !== null && v !== "");
+  // Every value may come from the lead (typed answers, name), so each is defused and quoted.
+  const quote = (v: unknown) => JSON.stringify(defuse(String(v)));
   const lines = [
     LEAD_CONTEXT_HEADING,
-    `Lead's name: ${lead.name?.trim() || "unknown"}`,
+    `Lead's name: ${lead.name?.trim() ? quote(lead.name.trim()) : "unknown"}`,
     `Language chosen at the start: ${lead.lang === "ar" ? "Arabic" : "English"}`,
-    known.length ? `Already known: ${known.map(([k, v]) => `${k}=${String(v)}`).join(", ")}` : "Already known: nothing yet",
+    known.length ? `Already known: ${known.map(([k, v]) => `${k}=${quote(v)}`).join(", ")}` : "Already known: nothing yet",
   ];
   return lines.join("\n");
 }
 
-// Lead text can't pass itself off as a note or as the end of one.
-function defuse(text: string): string {
-  return text.split(NOTE_PREFIX).join("[note]").split(LEAD_HEADER).join("Lead message:");
+// Lead text can't pass itself off as a note, the end of one, lead context or business data.
+export function defuse(text: string): string {
+  return text
+    .split(NOTE_PREFIX).join("[note]")
+    .split(LEAD_HEADER).join("Lead message:")
+    .split(LEAD_CONTEXT_HEADING).join("About the lead -")
+    .split(DATA_MARKER).join("[business data]")
+    .split(DATA_END).join("[end of business data]");
 }
 
-export type OutsideMessage ={ direction: string; author: string; kind: string; body: string };
+export type GuardedRun = { createdAt: Date; outcome: string };
+const GUARDED_OUTCOMES = new Set(["blocked", "off_topic"]);
+
+/**
+ * Drops turns the guard stopped (blocked or off-topic) so their text never reaches the main model:
+ * the lead's message and the replies until the next lead message. A turn is guarded when its
+ * payload says so, or when the first AgentRun recorded after the message has a guarded outcome.
+ */
+export function dropGuardedTurns<M extends OutsideMessage & { createdAt: Date; payload?: string | null }>(
+  messages: M[],
+  runs: GuardedRun[],
+): M[] {
+  const sortedRuns = [...runs].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const out: M[] = [];
+  let skipping = false;
+  for (const m of messages) {
+    if (m.direction === "in") {
+      const run = sortedRuns.find((r) => r.createdAt.getTime() >= m.createdAt.getTime());
+      skipping = payloadGuarded(m.payload) || (run !== undefined && GUARDED_OUTCOMES.has(run.outcome));
+    }
+    if (!skipping) out.push(m);
+  }
+  return out;
+}
+
+function payloadGuarded(payload: string | null | undefined): boolean {
+  if (!payload) return false;
+  try {
+    const p = JSON.parse(payload) as Record<string, unknown>;
+    return p.guarded === true || p.blocked === true || p.offTopic === true || (typeof p.outcome === "string" && GUARDED_OUTCOMES.has(p.outcome));
+  } catch {
+    return false;
+  }
+}
+
+export type OutsideMessage = { direction: string; author: string; kind: string; body: string };
 
 /**
  * Messages the AI didn't write or see (the scripted flow, a person during a takeover) since its

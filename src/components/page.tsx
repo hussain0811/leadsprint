@@ -29,19 +29,3 @@ export function Page({
     </div>
   );
 }
-
-// Placeholder for sections built in later steps of the local build.
-export function ComingInStep({ step, what, points }: { step: number; what: string; points: string[] }) {
-  return (
-    <section className="mt-8 max-w-[62ch]">
-      <p className="text-[15px] leading-relaxed">
-        This section arrives in step {step}: {what}.
-      </p>
-      <ul className="mt-4 grid list-disc gap-2 pl-5 text-[15px] leading-relaxed text-muted">
-        {points.map((point) => (
-          <li key={point}>{point}</li>
-        ))}
-      </ul>
-    </section>
-  );
-}

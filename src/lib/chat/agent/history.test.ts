@@ -67,3 +67,10 @@ test("extracts numbers in the formats replies use", () => {
   has("size 1,050.5 sqft", 1050.5);
   assert.deepEqual(collectKnownNumbers(["60/40"], [null, 5]).sort((a, b) => a - b), [5, 40, 60]);
 });
+
+test("embedding usage counts only when the search reports it", async () => {
+  const { embeddingUsage } = await import("./run-tools");
+  assert.equal(embeddingUsage({ passages: [] }), 0);
+  assert.equal(embeddingUsage({ usage: { total_tokens: 12 } }), 12);
+  assert.equal(embeddingUsage({ usage: { prompt_tokens: "x" } }), 0);
+});

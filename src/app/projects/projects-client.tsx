@@ -192,13 +192,7 @@ export function ProjectsClient() {
                           {" · "}
                         </>
                       )}
-                      {PROJECT_STATUS_LABEL[p.status]}
-                      {p.handover && (
-                        <>
-                          {", "}
-                          <bdi>{p.handover}</bdi>
-                        </>
-                      )}
+                      <StageText status={p.status} handover={p.handover} />
                       {" · "}
                       {count(p.units, "unit")} ({formatAvailable(p.availableUnits)})
                       {" · "}
@@ -246,6 +240,19 @@ export function ProjectsClient() {
         </div>
       )}
     </div>
+  );
+}
+
+// "Off-plan, handover Q4 2027", or just "Ready to move in" when the handover already says it.
+function StageText({ status, handover }: { status: ProjectSummary["status"]; handover: string | null }) {
+  const label = PROJECT_STATUS_LABEL[status];
+  if (!handover) return <>{label}</>;
+  if (handover.toLowerCase().startsWith(label.toLowerCase())) return <bdi>{handover}</bdi>;
+  return (
+    <>
+      {label}, {status === "off_plan" ? "handover " : ""}
+      <bdi>{handover}</bdi>
+    </>
   );
 }
 

@@ -83,7 +83,7 @@ export function Documents({
   return (
     <Section
       title="Documents"
-      intro="Everything the AI can read. Rules carry a brass mark and apply to every reply; reference is searched when needed."
+      intro="Everything the AI can read. Rules are marked in gold and apply to every reply. Reference documents are searched when a question needs them."
       aside={
         sources.length > 0 && (
           <div className="grid gap-1.5 text-[14px]">
@@ -311,6 +311,7 @@ function DocumentRow({
         </TextButton>
         <TextButton
           ref={editButton}
+          aria-label={`Edit “${source.title}”`}
           aria-expanded={editing}
           aria-controls={editing ? editId : undefined}
           onClick={() => (editing ? closeEditor() : setEditing(true))}
@@ -326,7 +327,14 @@ function DocumentRow({
             {busy?.action === "download" ? "Downloading…" : "Download original"}
           </TextButton>
         )}
-        <TextButton ref={deleteButton} tone="bad" className="ml-auto" onClick={remove} disabled={busy !== null}>
+        <TextButton
+          ref={deleteButton}
+          aria-label={`Delete “${source.title}”`}
+          tone="bad"
+          className="ml-auto"
+          onClick={remove}
+          disabled={busy !== null}
+        >
           {busy?.action === "delete" ? "Deleting…" : "Delete"}
         </TextButton>
       </div>

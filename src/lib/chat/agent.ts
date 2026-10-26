@@ -28,6 +28,7 @@ import {
   regenerateNote,
   scopePrompt,
   scopeUserContent,
+  dropGuardedTurns,
   type BusinessData,
 } from "./agent/prompt";
 import { newTurnState, runTool, type TurnState } from "./agent/run-tools";
@@ -114,6 +115,7 @@ async function runTurn(
           id: true,
           name: true,
           qualification: true,
+          tokensUsed: true,
           projectId: true,
           project: {
             select: {
@@ -137,6 +139,19 @@ async function runTurn(
   const settings = readSettings(org.settings);
   const qualification = parseJson<Qualification>(lead.qualification, {});
 
+  // Budgets are checked before every model call: what the lead and the org have left, minus this turn.
+  const monthUsed = await monthTokensUsed(args.orgId, now);
+  const budgetLeft = () =>
+    Math.min(settings.leadTokenBudget - lead.tokensUsed, settings.monthlyTokenBudget - monthUsed) - tokens.input - tokens.output;
+  const outOfBudget = () => {
+    if (budgetLeft() > 0) return false;
+    state.handoff = true;
+    state.handoffReason ??= lead.tokensUsed + tokens.input + tokens.output >= settings.leadTokenBudget
+      ? "The lead's AI token budget is used up."
+      : "The monthly AI token budget is used up.";
+    return true;
+  };
+
   const ai = await getAiConnection(args.orgId);
   if (!ai) return fail("No AI connection.");
   run.model = ai.config.chatModel;
@@ -157,15 +172,27 @@ async function runTurn(
       where: { conversationId: conversation.id, createdAt: { gt: lastAiAt } },
       orderBy: { createdAt: "desc" },
       take: OUTSIDE_MESSAGES + 1,
-      select: { direction: true, author: true, kind: true, body: true },
+      select: { direction: true, author: true, kind: true, body: true, payload: true, createdAt: true },
     })
   ).reverse();
   // The lead's current message may already be saved; it is sent as the lead's text, not as context.
   const current = outside.at(-1)?.direction === "in" ? outside.pop() : undefined;
+  // Messages the guard stopped (blocked, off-topic) never reach the main model, not even as context.
+  const guardRuns = outside.length
+    ? await prisma.agentRun.findMany({
+        where: { conversationId: conversation.id, createdAt: { gte: outside[0].createdAt } },
+        select: { createdAt: true, outcome: true },
+      })
+    : [];
+  const unguarded = dropGuardedTurns(outside, guardRuns);
   const leadText = (args.input.text?.trim() || current?.body.trim() || (args.input.replyId ? `(tapped option ${args.input.replyId})` : "")).trim();
   if (!leadText) return fail("The lead's message is empty.");
 
   // 1. Topic check: off-topic and abusive messages never reach the main model.
+  if (outOfBudget()) {
+    run.outcome = "handoff";
+    return { messages: [], replyCheck: null };
+  }
   if (settings.scopeCheck) {
     const scopeModel = ai.config.scopeModel.trim() || ai.config.chatModel;
     run.guard.scopeModel = scopeModel;
@@ -211,7 +238,7 @@ async function runTurn(
   }
   const pastUser = userContents(history);
   if (currentDataSection(systemPrompt, pastUser) !== freshSection) notes.push(dataUpdateNote(freshSection));
-  const outsideNote = outsideMessagesNote(outside);
+  const outsideNote = outsideMessagesNote(unguarded);
   if (outsideNote) notes.push(outsideNote);
   const leadNote = leadContextNote({ name: lead.name, lang: args.lang, qualification });
   const lastLeadNote = [...pastUser].reverse().find((c) => c.includes(LEAD_CONTEXT_HEADING));
@@ -220,16 +247,19 @@ async function runTurn(
   // 3. The model with tools.
   const messages: ProviderMessage[] = [{ role: "system", content: systemPrompt }, ...history];
   const appended: Array<{ role: string; raw: string }> = [];
-  const push = (sent: ProviderMessage, stored: object & { role: string } = sent) => {
+  // pushMemoryOnly: sent to the model this turn but never stored (the note about a rejected reply).
+  const push =(sent: ProviderMessage, stored: object & { role: string } = sent) => {
     messages.push(sent);
     appended.push(toRow(stored));
   };
+  const pushMemoryOnly = (sent: ProviderMessage) => messages.push(sent);
   for (const missing of missingToolResults(history)) push(missing);
   push({ role: "user", content: composeUserContent(leadText, notes) });
 
   const knownNumbers = () =>
     collectKnownNumbers(
-      [...toolResultContents(history), ...state.factTexts, freshSection, leadText],
+      // The lead's own text is left out: a number the lead typed isn't a price the business confirmed.
+      [...toolResultContents(history), ...state.factTexts, freshSection],
       [qualification.budgetMin, qualification.budgetMax, state.patch.budgetMin, state.patch.budgetMax],
     );
 
@@ -243,6 +273,7 @@ async function runTurn(
 
   try {
     for (let call = 0; call < MAX_TOOL_ROUNDS + 4; call++) {
+      if (outOfBudget()) break;
       const completion = await client.chat.completions.create({
         model: ai.config.chatModel,
         messages,
@@ -254,6 +285,7 @@ async function runTurn(
       const received = choice?.message;
       const sent = received && toRequestMessage(received);
       if (!received || !sent) throw new Error("The model returned no message.");
+      const storedAt = appended.length;
       push(sent, received);
 
       if (received.refusal) {
@@ -274,6 +306,8 @@ async function runTurn(
               : JSON.stringify({ error: "Only function tools are available." });
           push({ role: "tool", tool_call_id: tc.id, content });
         }
+        tokens.input += state.embeddingTokens;
+        state.embeddingTokens = 0;
         if (!allowed && toolLimitHit) {
           state.handoffReason ??= "The AI kept calling tools without replying.";
           break;
@@ -291,6 +325,8 @@ async function runTurn(
         reply = text;
         break;
       }
+      // The rejected reply was never sent, so it stays out of the stored transcript.
+      appended.length = storedAt;
       if (regenerated) {
         // Second failure: a person takes over rather than sending a bad reply.
         state.handoff = true;
@@ -298,7 +334,7 @@ async function runTurn(
         break;
       }
       regenerated = true;
-      push({ role: "user", content: regenerateNote(replyCheck.reason, settings.maxReplyChars) });
+      pushMemoryOnly({ role: "user", content: regenerateNote(replyCheck.reason, settings.maxReplyChars) });
     }
     if (reply === null && !loopError && !state.handoff) {
       state.handoff = true;
@@ -348,6 +384,16 @@ async function loadBusinessData(
     }),
   ]);
   return { rules, project, documents };
+}
+
+async function monthTokensUsed(orgId: string, now: Date): Promise<number> {
+  // Same sum as the pipeline's, repeated here because the pipeline imports this file.
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const sum = await prisma.agentRun.aggregate({
+    where: { orgId, createdAt: { gte: since } },
+    _sum: { inputTokens: true, outputTokens: true },
+  });
+  return (sum._sum.inputTokens ?? 0) + (sum._sum.outputTokens ?? 0);
 }
 
 async function appendTranscript(conversationId: string, lastSeq: number, rows: Array<{ role: string; raw: string }>, guard: Record<string, unknown>) {

@@ -26,6 +26,16 @@ export async function readSheets(buffer: Buffer, fileName: string): Promise<Shee
   if (!kind) throw new SheetError(UNSUPPORTED_SHEET);
   if (buffer.length === 0) throw new SheetError("This file is empty. Check that you picked the right file.");
   if (kind === "csv") return [{ name: null, rows: readCsv(buffer) }];
+  // An .xlsx is a zip: a small upload can unpack to gigabytes, so check its declared size before opening it.
+  const unpacked = zipUncompressedSize(buffer);
+  if (unpacked === null) {
+    throw new SheetError(
+      "This Excel file couldn't be read. It may be damaged, or an old .xls file renamed to .xlsx. Open it in Excel, save it as .xlsx and upload it again.",
+    );
+  }
+  if (unpacked > MAX_UNZIPPED_BYTES) {
+    throw new SheetError("This Excel file is too large once opened. Remove pictures or extra sheets, or save the price list as CSV, and try again.");
+  }
   try {
     return await readXlsx(buffer);
   } catch {
@@ -33,6 +43,38 @@ export async function readSheets(buffer: Buffer, fileName: string): Promise<Shee
       "This Excel file couldn't be read. It may be damaged, or an old .xls file renamed to .xlsx. Open it in Excel, save it as .xlsx and upload it again.",
     );
   }
+}
+
+export const MAX_UNZIPPED_BYTES = 50 * 1024 * 1024;
+
+/**
+ * The total uncompressed size a zip file declares in its central directory, or null when the
+ * directory can't be found or read. Zip64 archives (sizes over 4 GB) report Infinity.
+ */
+export function zipUncompressedSize(buffer: Buffer): number | null {
+  // The end-of-central-directory record sits in the last 22 bytes, plus a comment of up to 64 KB.
+  const EOCD = 0x06054b50;
+  const CENTRAL = 0x02014b50;
+  let eocd = -1;
+  for (let i = buffer.length - 22; i >= Math.max(0, buffer.length - 22 - 0xffff); i--) {
+    if (buffer.readUInt32LE(i) === EOCD) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) return null;
+  const entries = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  if (entries === 0xffff || offset === 0xffffffff) return Infinity;
+  let total = 0;
+  for (let n = 0; n < entries; n++) {
+    if (offset + 46 > buffer.length || buffer.readUInt32LE(offset) !== CENTRAL) return null;
+    const size = buffer.readUInt32LE(offset + 24);
+    if (size === 0xffffffff) return Infinity;
+    total += size;
+    offset += 46 + buffer.readUInt16LE(offset + 28) + buffer.readUInt16LE(offset + 30) + buffer.readUInt16LE(offset + 32);
+  }
+  return total;
 }
 
 function readCsv(buffer: Buffer): SheetRow[] {

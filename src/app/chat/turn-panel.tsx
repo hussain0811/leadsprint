@@ -8,7 +8,7 @@ import { dateTime, formatNumber, qualificationRows } from "./format";
 const MODE: Record<TurnTrace["mode"], [Tone, string]> = {
   scripted: ["muted", "The scripted flow"],
   ai: ["ok", "The AI agent"],
-  human: ["warn", "Nobody: a person has taken over"],
+  human: ["warn", "A person is answering"],
   none: ["muted", "Nobody: no reply was sent"],
 };
 
@@ -30,7 +30,7 @@ const SCORE: Record<Score, [Tone, string]> = {
   hot: ["ok", "Hot"],
   warm: ["warn", "Warm"],
   cold: ["muted", "Cold"],
-  unknown: ["muted", "Not scored yet"],
+  unknown: ["muted", "No score yet"],
 };
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -160,7 +160,7 @@ export function LeadPanel({ view, strikeLimit }: { view: ConversationView; strik
       </Row>
       {view.needsHuman && (
         <Row label="Needs a person">
-          <StatusMark tone="warn">The bot passed this lead to a person.</StatusMark>
+          <StatusMark tone="warn">Needs a person: the bot handed this lead over.</StatusMark>
         </Row>
       )}
       <Row label="Score">
