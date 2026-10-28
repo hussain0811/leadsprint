@@ -1,10 +1,19 @@
 # AI Lead-Qualifying Agent: Project Plan
 
-> CyphronTech product · working name **LeadSprint** (placeholder) · revised 2026-10-19
+> CyphronTech product · working name **LeadSprint** (placeholder) · revised 2026-10-28
+
+**What changed on 2026-10-28 (after a review of the plan)**
+- The plan was built around what's easy to build (web chat), not where brokers' leads come from (Property Finder, Bayut, Meta ads, calls). v1 now starts from **WhatsApp conversations the lead starts** (portal WhatsApp buttons, click-to-WhatsApp ads), plus Meta lead ads and portal enquiry emails.
+- Meta requires a person's opt-in before a business messages them first on WhatsApp, and that first message must be an approved template. A portal enquiry isn't clearly an opt-in, so v1 never messages a portal form lead first on WhatsApp unless they opted in (§10).
+- Agents work from WhatsApp, not a dashboard: a hot lead reaches the agent as a **WhatsApp alert** with summary, score and one-tap takeover.
+- Booking from slot lists is dropped from v1: the bot collects the lead's **preferred time and the agent confirms** it. Slot lists stay as an option.
+- **Stays fully BYOK** (reviewed and kept): the scripted bot remains the no-key tier and the fallback when AI fails.
+- v1 is about 5 weeks on one paying client. Infrastructure no broker sees waits until three clients ask for it (§4, "Waiting list").
+- The local build (Phase 1) is finished: see §9.
 
 **Decisions so far**
 - Real estate first; first customers in the UAE and Saudi Arabia; built to go worldwide after the Gulf.
-- Channels: web chat (real from day one), WhatsApp (**simulated until the first paying client**), SMS (Phase 3).
+- Channels: **WhatsApp first** (real from v1, on the client's own number; leads who message first get an instant reply), web chat (secondary), SMS later. Phone calls are out of scope for now.
 - **Fully bring-your-own (BYOK) SaaS:** customers pay us a monthly subscription for the software only. AI, WhatsApp, SMS, email to leads and document storage all run on the customer's own accounts and keys, billed to them directly by those providers. **CyphronTech pays for no AI or messaging anywhere in the product**, including document search and the public demo (which uses recordings, or the visitor's own key). See the BYOK map in §6.
 - **A normal bot without a key** (scripted, button-based flow; needs no connections at all); **AI-powered with a key**: natural conversation, answers from the customer's documents, follows their rules documents, stays strictly on topic.
 - Any major AI provider, or any compatible endpoint (including self-hosted models).
@@ -21,7 +30,7 @@ Real estate brokerages and developers in Dubai, Abu Dhabi and Riyadh pay a lot f
 - **Without an AI key:** a fast scripted flow with buttons asks the qualifying questions, scores by rules, routes and books.
 - **With the customer's AI key:** the same bot becomes a natural conversation in the buyer's own language. It follows the customer's rules (terms and conditions, policies) on every reply, checks their documents whenever a question needs them, and talks only about the customer's business, so the key can't be misused.
 
-**What works when:** Phase 1 (free beta) handles conversations that start in the web chat widget on the customer's website, plus the WhatsApp simulator for demos. Messaging leads from ads and portals needs a real outbound channel, which arrives with real WhatsApp in Phase 2 (§4).
+**What works when:** the local build (Phase 1, done) runs the whole bot against a WhatsApp simulator. v1 (§4) puts it on a paying client's real WhatsApp number. The 60-second promise covers leads who message the broker on WhatsApp (portal WhatsApp buttons, click-to-WhatsApp ads) and ad leads who opted in to WhatsApp. Portal form leads without an opt-in are alerted to the agent instantly instead of messaged by the bot. Phone-call leads aren't covered.
 
 **Why fully BYOK sells:** no markup on AI or messaging, and transparent costs; the customer chooses every provider and keeps their data in their own accounts (documents in their own storage bucket, conversations processed under their own AI contract); companies with strict data rules can point it at Azure, AWS Bedrock or a self-hosted model in their own region (Azure and Bedrock are certified in Phase 3). That keeps the AI processing in their region; where our own database lives is a separate question (§10).
 
@@ -66,7 +75,26 @@ Competitor details come from vendor pages and listings; check each one's pricing
 
 ## 4. Scope by phase
 
-### Phase 1: launch build (blog post + public demo + free beta)
+### v1: first paying client (~5 weeks once signed)
+
+Replaces the old Phase 1 beta launch and Phase 2. Builds on the finished local build (§9).
+
+1. **Real WhatsApp on the client's own number** (Meta Cloud API or their own 360dialog account; BYOK). Start number setup, business verification and template approval on day one. Swap the simulator adapter for the real one; the simulator keeps Meta's payload shapes, so the bot itself doesn't change.
+2. **Lead intake:**
+   - WhatsApp conversations the lead starts (portal WhatsApp buttons, click-to-WhatsApp ads): instant bot reply inside the 24-hour window, no template needed.
+   - Meta lead ads, connected by signing in to the client's ad account, with a WhatsApp opt-in question on the form. Opted-in leads get a template message within 60 seconds; the rest go to the agent.
+   - Portal enquiry emails (Property Finder, Bayut, Dubizzle) parsed from a forwarding inbox. The lead is created and the agent alerted at once; the bot messages them only if they opted in (§10).
+3. **AI qualification on the client's own key** (BYOK), English and Arabic, answering from the units table and the brochure. Scripted flow for clients without a key and as the fallback when AI fails.
+4. **WhatsApp alert to the agent** for every hot or handed-off lead: name, summary, score, preferred viewing time, with one-tap takeover (reply from WhatsApp; the agent's reply goes through the client's number). Sent through the client's own WhatsApp account as a template to the agent's number, so agents opt in once.
+5. **Viewings: the agent confirms.** The bot collects the preferred day and time; the agent confirms or proposes another time from the alert. Slot-list booking stays available for clients who keep slots up to date.
+6. **Basic dashboard:** response times, qualified leads, viewings, by source. The existing local-build pages cover most of it.
+7. Billing through a merchant of record (Paddle or Stripe Managed Payments) once the client pays; hosting as in §6.
+
+**Waiting list (until three clients ask for it):** certifying more AI providers, embedding-size handling beyond one model, the recorded public demo, the abuse dashboard, a full Arabic dashboard, a visual flow editor, CRM sync, SMS, email to leads, portal APIs, calendar sync, cloud drives, phone calls.
+
+The sections below describe the original long-term scope. Where they differ from v1 above, v1 wins.
+
+### Phase 1: local build (done, see §9)
 **Core (no key)**
 1. Lead intake: website form/embed, generic webhook, CSV import.
 2. Channels: **web chat widget** (real; customers embed it on their site and landing pages, with their own logo, colours, greeting and language) and a **WhatsApp simulator** that behaves like WhatsApp (templates, buttons, lists, 24-hour window).
@@ -86,7 +114,7 @@ Competitor details come from vendor pages and listings; check each one's pricing
 5. Topic guard and key protection (§7b).
 6. Automatic fallback to the scripted flow when the key fails.
 
-### Phase 2: first paying client
+### Phase 2: first paying client (now covered by v1 above; kept for reference)
 - **Real WhatsApp on the client's own account:** the client connects their own WhatsApp Business credentials, either straight from Meta (WhatsApp Cloud API) or from their own provider account (360dialog first, as its API mirrors Meta's). They pay Meta and their provider directly, and CyphronTech needs no Meta Tech Provider status. Start the client's number setup, Meta business verification and first template approvals on day one; they can take from days to a few weeks.
 - Only the lead sources the client actually uses (from Meta Lead Ads, Click-to-WhatsApp ads, TikTok or Google lead forms), connected by signing in to their own ad accounts; the rest follow later.
 - Follow-up sequences using approved templates; reminders.
@@ -94,7 +122,7 @@ Competitor details come from vendor pages and listings; check each one's pricing
 - Billing and paid plans through a merchant of record that handles VAT and sales tax worldwide: Paddle, or Stripe Managed Payments (public preview in 2026). Avoid starting new on Lemon Squeezy, which Stripe is moving merchants off. Check the provider accepts sellers from CyphronTech's country of registration.
 - Regional hosting if the client requires it.
 
-### Phase 3: growth
+### Phase 3: growth (items move up only when three clients ask)
 - SMS via the customer's Twilio/Unifonic account.
 - Email to leads (booking confirmations, reminders, follow-ups) through the customer's own email service (SMTP, Resend, SendGrid).
 - Portal integrations (Property Finder, Bayut, Dubizzle) using each customer's own portal API credentials where the portal issues them (otherwise CyphronTech applies as an integration partner); email-parsing inbox meanwhile.
@@ -108,10 +136,13 @@ Competitor details come from vendor pages and listings; check each one's pricing
 ## 5. How a lead flows
 
 ```
-Website form / widget / webhook / CSV ──► /api/leads/ingest ──► Lead created, dedupe by phone + email
+WhatsApp (lead writes first) / Meta lead ad / portal email / web chat ──► Lead created, dedupe by phone + email
                                                 │
                                                 ▼
-                       First message ≤ 60 s (web chat now; WhatsApp simulator → real WhatsApp later)
+             Lead wrote first, or opted in? ── no ──► WhatsApp alert to the agent (no bot message)
+                                                │ yes
+                                                ▼
+                       First message ≤ 60 s (reply inside the 24-hour window, or approved template)
                                                 │
               lead replies ──► channel adapter ──► job queue ──► Free checks (opt-out, length, rate, abuse rules)
                                                                     │
@@ -127,7 +158,7 @@ Website form / widget / webhook / CSV ──► /api/leads/ingest ──► Lead
                                      ▼                                                          │
                               Reply check ──────────────────────────────┬────────────────────────┘
                                                                         ▼
-                                  Score + summary ──► assign agent ──► alert ──► (CRM sync in Phase 2)
+                  Score + summary ──► assign agent ──► WhatsApp alert to the agent (one-tap takeover, confirm viewing)
 ```
 
 ## 6. Architecture
@@ -302,6 +333,8 @@ The customer pays for every token, so the AI must only be used for their leads a
 
 ## 8. The public demo build
 
+**On the waiting list (§4).** For v1, demos run from the local build's Chat tester. The design below stays for later.
+
 Fully BYOK too: the demo never runs AI on CyphronTech's key.
 
 1. Visitor fills a fake ad form for "Marina Crest, off-plan 1–3 BR, Dubai Marina". The demo org has a sample brochure, payment plan, FAQ and terms loaded.
@@ -315,7 +348,31 @@ Guardrails: rate limit per IP, bot protection, demo org reset nightly, demo data
 
 ## 9. Milestones
 
-### Phase 1: solo with Claude Code (~12 weeks)
+### Status on 2026-10-28: local build done
+
+Repo: github.com/hussain0811/leadsprint. Runs locally (Next.js 16, SQLite, Prisma), 196 tests passing. Built in 10 steps:
+- Connections page: AI key (LM Studio, Ollama, OpenAI, Gemini, OpenRouter, Groq, any OpenAI-compatible endpoint) with checks; local-folder storage.
+- Knowledge base: file uploads, web pages, Q&A pairs, rules documents, keyword + embedding search, try-a-question.
+- Chat tester (WhatsApp-style simulator), scripted EN/AR flow, AI agent with tools, topic guard, strikes, budgets, fallback.
+- Projects and units (Excel/CSV import), Leads (detail, CSV export), Inbox with takeover, Dashboard.
+- Step 10 end-to-end verification and fixes.
+
+Deferred from step 10: DNS-rebinding check for page fetches; AI history written inside the turn's transaction; valid-until dates ending at the end of the day in Dubai time; in-memory conversation lock (single process only); embedding tokens counted in budgets.
+
+### v1: first paying client (~5 weeks once signed)
+
+| Week | Deliverable |
+|---|---|
+| 0 (day one) | Client's WhatsApp number, Meta business verification, template approvals started (can take days to weeks) |
+| 1 | Postgres + hosting (§6), auth and orgs, real WhatsApp adapter replacing the simulator, webhooks with idempotency and the shared per-lead lock |
+| 2 | Lead intake: WhatsApp-first conversations, Meta lead ads with WhatsApp opt-in, portal email parsing; opt-in rules (§10) |
+| 3 | Agent WhatsApp alerts with one-tap takeover; preferred-time capture and agent confirmation |
+| 4 | Units table and brochure answers tuned with the client's real data, English and Arabic; basic dashboard by source |
+| 5 | Pilot on live leads, fixes, billing |
+
+Customer calls continue alongside: how leads arrive (calls vs forms vs WhatsApp), how fast agents answer today, and whether brokers will connect their own AI key and WhatsApp account.
+
+### Original Phase 1 plan (superseded, kept for reference)
 
 | Week | Deliverable |
 |---|---|
@@ -352,7 +409,7 @@ SMS, email to leads, portals and cloud drives (all on the customer's own account
 | **Saudi data protection (PDPL / SDAIA)** | Transfers outside the Kingdom need a permitted basis and safeguards; a Saudi customer may require in-Kingdom hosting |
 | **Dubai property advertising (DLD/RERA)** | Ads need a Trakheesi permit number; brokers need Form A; agent repeats only approved facts |
 | **Saudi real estate (REGA)** | Licensed brokers (FAL); same rule |
-| **WhatsApp (Phase 2)** | On the customer's own account, so template approvals and Meta policy compliance are theirs; we honour opt-outs and keep the AI scoped to the business |
+| **WhatsApp (v1)** | On the customer's own account, so template approvals and Meta policy compliance are theirs; we honour opt-outs and keep the AI scoped to the business. **Opt-in:** Meta requires the person's opt-in before a business messages them first, and the first message must be an approved template with an easy opt-out. A portal enquiry isn't clearly an opt-in, so the product only messages first when the lead opted in (for example an opt-in question on a Meta lead form) and otherwise alerts the agent. Leads who message first are answered freely inside the 24-hour window. Unwanted messages lead to reports, a lower quality rating and possible blocking of the client's number |
 | **SMS (Phase 3)** | UAE: registered "AD-" sender IDs, consent upload, no promotional sends 9pm–7am. Saudi: sender names registered through a licensed provider |
 
 ## 11. Launch blog post
@@ -376,6 +433,10 @@ SMS, email to leads, portals and cloud drives (all on the customer's own account
 
 | Risk | Mitigation |
 |---|---|
+| Meta's opt-in rules block messaging portal form leads first | v1 only messages first with an opt-in; portal form leads get an instant agent alert instead. If most leads arrive as forms, the pitch narrows to WhatsApp-first and ad leads. Check the portals' own terms and Meta's current rules before the client pilot |
+| Many leads arrive as phone calls, which the bot doesn't cover | Measure the call share in customer calls; calls stay out of v1 |
+| Agents ignore the dashboard | Alerts and takeover happen in WhatsApp; the dashboard is for managers |
+| Agents don't keep viewing slots up to date | The bot collects a preferred time and the agent confirms it |
 | Solo build takes longer than planned | Phased scope. If late, cut in this order: website pages source → visual flow editor (edit flows as simple forms instead) → Arabic dashboard UI (keep Arabic bot conversations, English dashboard) → abuse dashboard (keep a plain flagged-chats list) |
 | Phase 1 beta gives limited value: only web chat leads can be messaged | Pitch the beta as "AI chat agent for your website" plus the WhatsApp demo; real WhatsApp starts with the first paying client |
 | Customers on new Anthropic accounts get errors if conversation history is edited | Append-only history with raw provider blocks; frozen system prompt per conversation; eval runs on a newly created Anthropic account |
@@ -401,8 +462,11 @@ SMS, email to leads, portals and cloud drives (all on the customer's own account
 3. Provider layer: multi-provider library vs own adapters. The library is faster for a solo build, but only if it passes the provider-quirks test in §6.
 4. Which exact models to certify at launch.
 5. Who the first beta testers and potential paying clients are.
-6. Billing provider for Phase 2: Paddle or Stripe Managed Payments (depends on where CyphronTech is registered).
+6. Billing provider for v1: Paddle or Stripe Managed Payments (depends on where CyphronTech is registered).
+7. Whether a Property Finder, Bayut or Dubizzle enquiry counts as WhatsApp opt-in, under Meta's current rules and each portal's terms. Check before the client pilot.
+8. What share of Gulf portal leads come as calls, forms and WhatsApp messages (ask in customer calls).
 
 **Settled**
-- Phase 1 stays web chat + WhatsApp simulator only; real WhatsApp waits for the first paying client (Phase 2).
+- Phase 1 was a local build with the WhatsApp simulator (done). Real WhatsApp comes with the first paying client (v1, §4).
+- v1 is WhatsApp-first, alerts agents on WhatsApp, and has agents confirm viewings (revised 2026-10-28).
 - Fully BYOK: AI, WhatsApp, SMS, email to leads and document storage all run on the customer's own accounts. CyphronTech pays for no AI or messaging in the product; the demo uses recordings plus the visitor's own key.
